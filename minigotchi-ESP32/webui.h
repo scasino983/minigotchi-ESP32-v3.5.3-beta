@@ -41,6 +41,7 @@ public:
   ~WebUI();
   static void setupServer();
   static void updateWhitelist(String newWhitelist);
+  static void processDNS() { if(running) dnsServer.processNextRequest(); }
   static const char html[] PROGMEM;
   static bool running;
 
