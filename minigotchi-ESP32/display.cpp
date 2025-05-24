@@ -21,6 +21,8 @@
  */
 
 #include "display.h"
+#include "display_test.h"
+#include "display_diagnostics.h"
 
 #if disp
 TFT_eSPI tft; // Define TFT_eSPI object
@@ -106,30 +108,200 @@ void Display::startScreen() {
       delay(100);    } else if (Config::screen ==
                "CYD") { // Check if the screen configuration is set to "CYD" and      // execute the corresponding code
       tft_display = &tft;
+        Serial.println("==== Initializing CYD 2.8\" ILI9341 Display ====");
       
-      // Initialize with hardware parameters for CYD MicroUSB
-      tft.init();
+      // Power cycle the display with a long reset sequence
+      Serial.println("Performing extended hardware reset sequence...");
+      pinMode(TFT_RST, OUTPUT);
+      digitalWrite(TFT_RST, HIGH);
+      delay(200);  // Longer initial delay
+      digitalWrite(TFT_RST, LOW);
+      delay(200);  // Longer low pulse
+      digitalWrite(TFT_RST, HIGH);
+      delay(200);  // Longer stabilization time
+      
+      // Try to toggle CS line as well (sometimes helps)
+      pinMode(TFT_CS, OUTPUT);
+      digitalWrite(TFT_CS, HIGH);
       delay(100);
-
+      digitalWrite(TFT_CS, LOW);
+      delay(100);
+      digitalWrite(TFT_CS, HIGH);
+      delay(100);
+      
+      // Initialize the display with standard method
+      Serial.println("Running tft.init()...");
+      bool init_result = tft.init();
+      if (init_result) {
+        Serial.println("Standard TFT init successful!");
+      } else {
+        Serial.println("Standard TFT init failed! Continuing with manual initialization...");
+      }
+      
+      // Manually send ILI9341 initialization commands from Ghost_ESP
+      Serial.println("Sending Ghost_ESP ILI9341 initialization commands...");
+      
+      // Command sequence from Ghost_ESP ILI9341 driver
+      uint8_t cmd_data[16];
+      
+      // Power control
+      cmd_data[0] = 0x00; cmd_data[1] = 0x83; cmd_data[2] = 0x30;
+      tft.writecommand(0xCF); for(int i=0; i<3; i++) tft.writedata(cmd_data[i]);
+      
+      cmd_data[0] = 0x64; cmd_data[1] = 0x03; cmd_data[2] = 0x12; cmd_data[3] = 0x81;
+      tft.writecommand(0xED); for(int i=0; i<4; i++) tft.writedata(cmd_data[i]);
+      
+      cmd_data[0] = 0x85; cmd_data[1] = 0x01; cmd_data[2] = 0x79;
+      tft.writecommand(0xE8); for(int i=0; i<3; i++) tft.writedata(cmd_data[i]);
+      
+      cmd_data[0] = 0x39; cmd_data[1] = 0x2C; cmd_data[2] = 0x00; cmd_data[3] = 0x34; cmd_data[4] = 0x02;
+      tft.writecommand(0xCB); for(int i=0; i<5; i++) tft.writedata(cmd_data[i]);
+      
+      cmd_data[0] = 0x20;
+      tft.writecommand(0xF7); tft.writedata(cmd_data[0]);
+      
+      cmd_data[0] = 0x00; cmd_data[1] = 0x00;
+      tft.writecommand(0xEA); for(int i=0; i<2; i++) tft.writedata(cmd_data[i]);
+      
+      // Power control
+      cmd_data[0] = 0x26;
+      tft.writecommand(0xC0); tft.writedata(cmd_data[0]);
+      
+      cmd_data[0] = 0x11;
+      tft.writecommand(0xC1); tft.writedata(cmd_data[0]);
+      
+      // VCOM control
+      cmd_data[0] = 0x35; cmd_data[1] = 0x3E;
+      tft.writecommand(0xC5); for(int i=0; i<2; i++) tft.writedata(cmd_data[i]);
+        cmd_data[0] = 0xBE;
+      tft.writecommand(0xC7); tft.writedata(cmd_data[0]);
+      
+      // Memory Access Control - CRITICAL FOR DISPLAY OPERATION
+      // 0x48 - Common for CYD displays (MY=0, MX=1, MV=0, ML=0, BGR=1, MH=0)
+      cmd_data[0] = 0x48;  // Try 0x48 for BGR mode instead of 0x28 (RGB mode)
+      tft.writecommand(0x36); tft.writedata(cmd_data[0]);
+      
+      // Pixel Format Set
+      cmd_data[0] = 0x55;
+      tft.writecommand(0x3A); tft.writedata(cmd_data[0]);
+      
+      cmd_data[0] = 0x00; cmd_data[1] = 0x1B;
+      tft.writecommand(0xB1); for(int i=0; i<2; i++) tft.writedata(cmd_data[i]);
+      
+      cmd_data[0] = 0x08;
+      tft.writecommand(0xF2); tft.writedata(cmd_data[0]);
+      
+      cmd_data[0] = 0x01;
+      tft.writecommand(0x26); tft.writedata(cmd_data[0]);
+      
+      // Set Gamma
+      cmd_data[0] = 0x1F; cmd_data[1] = 0x1A; cmd_data[2] = 0x18; cmd_data[3] = 0x0A; cmd_data[4] = 0x0F;
+      cmd_data[5] = 0x06; cmd_data[6] = 0x45; cmd_data[7] = 0x87; cmd_data[8] = 0x32; cmd_data[9] = 0x0A;
+      cmd_data[10] = 0x07; cmd_data[11] = 0x02; cmd_data[12] = 0x07; cmd_data[13] = 0x05; cmd_data[14] = 0x00;
+      tft.writecommand(0xE0); for(int i=0; i<15; i++) tft.writedata(cmd_data[i]);
+      
+      cmd_data[0] = 0x00; cmd_data[1] = 0x25; cmd_data[2] = 0x27; cmd_data[3] = 0x05; cmd_data[4] = 0x10;
+      cmd_data[5] = 0x09; cmd_data[6] = 0x3A; cmd_data[7] = 0x78; cmd_data[8] = 0x4D; cmd_data[9] = 0x05;
+      cmd_data[10] = 0x18; cmd_data[11] = 0x0D; cmd_data[12] = 0x38; cmd_data[13] = 0x3A; cmd_data[14] = 0x1F;
+      tft.writecommand(0xE1); for(int i=0; i<15; i++) tft.writedata(cmd_data[i]);
+      
+      // Column Address Set
+      cmd_data[0] = 0x00; cmd_data[1] = 0x00; cmd_data[2] = 0x00; cmd_data[3] = 0xEF;
+      tft.writecommand(0x2A); for(int i=0; i<4; i++) tft.writedata(cmd_data[i]);
+      
+      // Page Address Set
+      cmd_data[0] = 0x00; cmd_data[1] = 0x00; cmd_data[2] = 0x01; cmd_data[3] = 0x3F;
+      tft.writecommand(0x2B); for(int i=0; i<4; i++) tft.writedata(cmd_data[i]);
+      
+      // Memory Write
+      tft.writecommand(0x2C);
+      
+      cmd_data[0] = 0x07;
+      tft.writecommand(0xB7); tft.writedata(cmd_data[0]);
+      
+      cmd_data[0] = 0x0A; cmd_data[1] = 0x82; cmd_data[2] = 0x27; cmd_data[3] = 0x00;
+      tft.writecommand(0xB6); for(int i=0; i<4; i++) tft.writedata(cmd_data[i]);
+      
+      // Sleep Out
+      tft.writecommand(0x11);
+      delay(100);
+      
+      // Display ON
+      tft.writecommand(0x29);
+      delay(100);
+      
+      // Inversion OFF
+      tft.writecommand(0x20);
+      
+      Serial.println("ILI9341 initialization sequence completed!");
+      
       // Set up display parameters
-      tft.setRotation(3); // Adjust rotation as needed
-      tft.invertDisplay(false); // Disable inversion
-      delay(100);
-
+      Serial.println("Setting rotation to 3...");
+      tft.setRotation(3); // Landscape mode
+      Serial.println("Setting text size and datum...");
+      tft.setTextSize(1);
+      tft.setTextDatum(TL_DATUM);
+      
       // Clear display and set black background
+      Serial.println("Filling screen with BLACK...");
       tft.fillScreen(TFT_BLACK);
-      delay(100);
-
-      // Set up backlight specifically for CYD MicroUSB (pin 21)
-      Serial.println("Initializing CYD MicroUSB backlight on pin 21");
+      
+      // Try different SPI speeds if needed
+      Serial.printf("Current SPI frequency: %d MHz\n", SPI_FREQUENCY/1000000);
+      
+      // Try a basic screen test with different colors
+      Serial.println("Performing basic color tests...");
+      tft.fillScreen(TFT_RED);
+      delay(500);
+      tft.fillScreen(TFT_GREEN);
+      delay(500);
+      tft.fillScreen(TFT_BLUE);
+      delay(500);
+      tft.fillScreen(TFT_WHITE);
+      delay(500);
+      tft.fillScreen(TFT_BLACK);
+      delay(500);
+      
+      // Set backlight PIN - Note: on CYD, backlight is typically on GPIO 32, not 21
+      // Trying both common pins for CYD displays
+      Serial.println("Setting backlight pins...");
+      
+      // Try pin 21 (as mentioned in your code)
       pinMode(21, OUTPUT);
       digitalWrite(21, HIGH);
-      Serial.println("CYD MicroUSB backlight set to HIGH");
-      delay(100);
+      Serial.println("Backlight on pin 21 set to HIGH");
+      
+      // Also try pin 32 (common for many CYD displays)
+      pinMode(32, OUTPUT);
+      digitalWrite(32, HIGH);
+      Serial.println("Backlight on pin 32 set to HIGH");
+      
+      delay(500);
+      
+      // Draw some basic text directly
+      Serial.println("Drawing test text...");
+      tft.setTextSize(3);
+      tft.setTextColor(TFT_WHITE);
+      tft.setCursor(20, 20);
+      tft.println("DISPLAY TEST");
+      tft.setTextSize(2);
+      tft.setCursor(20, 60);
+      tft.println("If you can see this");
+      tft.setCursor(20, 80);
+      tft.println("text, display is");
+      tft.setCursor(20, 100);
+      tft.println("working!");
+      delay(2000);
       
       // Run display tests
       Serial.println("Running display tests...");
+      DisplayTest::init(&tft);
       DisplayTest::runDisplayTests();
+      
+      // Run comprehensive diagnostics
+      Serial.println("Running comprehensive display diagnostics...");
+      DisplayDiagnostics::init(&tft);
+      DisplayDiagnostics::runComprehensiveDiagnostics();
       
       // Welcome message after tests
       tft.fillScreen(TFT_BLACK);
@@ -142,8 +314,7 @@ void Display::startScreen() {
       tft.setTextSize(2);
       tft.setTextColor(TFT_WHITE);
       tft.drawString("CYD 2.8\" Display", tft.width()/2, tft.height()/2);
-      tft.drawString("Initializing...", tft.width()/2, tft.height()/2 + 30);
-      delay(1000);
+      delay(2000);
       
       tft.fillScreen(TFT_BLACK);
     }else if (Config::screen == "T_DISPLAY_S3") {
