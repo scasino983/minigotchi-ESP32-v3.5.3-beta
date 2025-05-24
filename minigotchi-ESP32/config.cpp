@@ -21,6 +21,11 @@
  */
 
 #include "config.h"
+#include "display.h"
+
+#ifdef CONFIG_WITH_SCREEN
+#include "display.cpp"
+#endif
 
 /** developer note:
  *
