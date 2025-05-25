@@ -2,6 +2,7 @@
 #define PCAP_LOGGER_H
 
 #include "esp_err.h" // For esp_err_t
+#include <stdio.h>   // For FILE* (though we'll use SD library's File class)
 #include <stdint.h>  // For standard integer types
 #include <stddef.h>  // For size_t
 
@@ -14,7 +15,7 @@
 #define DLT_IEEE802_11_RADIO 127 // Link type for raw 802.11 frames with radiotap
 
 #define MAX_PCAP_FILE_NAME_LENGTH 64 // e.g., "/minigotchi_pcaps/eapolscan_999.pcap"
-#define PCAP_DIR "/minigotchi_pcaps" 
+#define PCAP_DIR "/minigotchi_pcaps" // Changed from /mnt/ghostesp/pcaps
 #define PCAP_BASE_FILENAME "eapolscan"
 
 // PCAP global header structure
