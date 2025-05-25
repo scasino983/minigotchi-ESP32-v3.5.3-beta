@@ -1,0 +1,13 @@
+*   [33m115efcf[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #1 from scasino983/feature/sd-card-init-దే
+[31m|[m[32m\[m  
+[31m|[m * [33m947c605[m[33m ([m[1;31morigin/feature/sd-card-init-దే[m[33m)[m I've implemented and tested live WiFi packet capture to SD card in PCAP format. Here's what I did:
+[31m|[m * [33m5408a74[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/sd-card-init-దే[m[33m)[m I've added SD card initialization logic to `Minigotchi::boot()`.
+[31m|[m[31m/[m  
+[31m|[m * [33mc2190ae[m[33m ([m[1;32mmain[m[33m)[m closwe
+[31m|[m * [33m22e30d7[m more
+[31m|[m * [33m1422df4[m more commits
+[31m|[m * [33m2a98fcd[m commirment
+[31m|[m[31m/[m  
+* [33m2138481[m FULL COMMIT
+* [33m01ee439[m switch to gpt
+* [33m5ed3775[m init
