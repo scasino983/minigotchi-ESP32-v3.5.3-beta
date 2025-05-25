@@ -21,6 +21,9 @@
  */
 
 #include "minigotchi.h"
+#include <SD.h>
+#include <SD_MMC.h>
+#define SD_CS_PIN 5
 
 // Arduino required setup function - runs once at startup
 void setup() {

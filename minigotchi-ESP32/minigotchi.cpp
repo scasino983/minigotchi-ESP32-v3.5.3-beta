@@ -21,6 +21,14 @@
  */
 
 #include "minigotchi.h"
+#include <SPI.h>
+#include <SD.h>
+
+#define SD_CS_PIN 5
+#include <SPI.h>
+#include <SD.h>
+
+#define SD_CS_PIN 5
 
 /** developer note:
  *
@@ -145,6 +153,20 @@ void Minigotchi::boot() {
   }
 
   Config::loadConfig();
+  
+  Serial.println("Initializing SD card...");
+  // Display::updateDisplay(Minigotchi::mood.getNeutral(), "Init SD Card...");
+
+  if (!SD.begin(SD_CS_PIN)) {
+    Serial.println("SD card initialization failed!");
+    Display::updateDisplay(mood.getSad(), "SD Card Failed!");
+    delay(Config::shortDelay);
+  } else {
+    Serial.println("SD card initialized successfully!");
+    Display::updateDisplay(mood.getHappy(), "SD Card OK!");
+    delay(Config::shortDelay);
+  }
+
   ESP_ERROR_CHECK(err);
   ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
   ESP_ERROR_CHECK(esp_wifi_set_country(&Config::ctryCfg));
