@@ -23,11 +23,6 @@
 #include "minigotchi.h"
 #include <SPI.h>
 #include <SD.h>
-
-#define SD_CS_PIN 5
-#include <SPI.h>
-#include <SD.h>
-
 #define SD_CS_PIN 5
 
 /** developer note:

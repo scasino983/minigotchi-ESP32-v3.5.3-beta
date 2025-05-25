@@ -23,9 +23,7 @@
 #include "webui.h"
 
 bool WebUI::running = false;
-
-// create instances of functions here
-DNSServer dnsServer;
+DNSServer WebUI::dnsServer; // Correct static member definition
 AsyncWebServer server(80);
 
 /**

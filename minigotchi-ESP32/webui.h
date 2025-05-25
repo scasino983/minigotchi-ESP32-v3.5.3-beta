@@ -45,6 +45,8 @@ public:
   static const char html[] PROGMEM;
   static bool running;
 
+  static DNSServer dnsServer; // <-- Add this declaration
+
 private:
   static Mood &mood;
 };
