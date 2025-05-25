@@ -144,24 +144,25 @@ public:
  * Starts and constructs Web Server
  */
 WebUI::WebUI() {
+  WiFi.disconnect(true); // Disconnect from any network and erase SSID/password
+  WiFi.mode(WIFI_OFF);   // Explicitly turn WiFi off
+  delay(100);            // Small delay to allow it to settle
   Serial.println(mood.getIntense() + " Starting Web Server...");
   Display::updateDisplay(mood.getIntense(), "Starting Web Server...");
 
   WiFi.mode(WIFI_AP);
   WiFi.softAP(Config::ssid, Config::pass);
+  Serial.print("AP IP address: "); Serial.println(WiFi.softAPIP());
 
   setupServer();
 
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.setTTL(300);
-  dnsServer.start(53, "*", WiFi.softAPIP());
+  if (WiFi.softAPIP()) { dnsServer.start(53, "*", WiFi.softAPIP()); } else { Serial.println("Error: softAPIP is not valid, DNS server not started."); }
 
   server.begin();
   WebUI::running = true;
-
-  while (running) {
-    dnsServer.processNextRequest();
-  }
+  Serial.println("WebUI Constructor: Setup complete. Returning control to WebUITask.");
 }
 
 WebUI::~WebUI() {

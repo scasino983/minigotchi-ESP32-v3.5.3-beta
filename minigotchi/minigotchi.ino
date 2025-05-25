@@ -21,6 +21,10 @@
  */
 
 #include "minigotchi.h"
+#include <SPI.h>
+#include <SD.h>
+
+ 
 
 /** developer note:
  *
@@ -47,12 +51,21 @@ void Minigotchi::WebUITask(void *pvParameters) {
   // setup web server
   WebUI *web = new WebUI();
 
+  if (!WebUI::running) {
+      Serial.println("WebUI failed to initialize properly in constructor!");
+      vTaskDelete(NULL); // Delete this task if WebUI init failed
+      return;
+  }
+  Serial.println("WebUITask: WebUI object created, entering wait loop.");
+
   // hang until something cool happens (this is not cool trust me)
   while (!Config::configured) {
-    taskYIELD(); // wait
+    WebUI::processDNS(); // Call the new static method
+    taskYIELD(); 
   }
 
   // clean up when done
+  Serial.println("WebUITask: Config::configured is true. Cleaning up WebUI.");
   delete web;
   web = nullptr; // crowdstrike forgot about this one lol
 
@@ -145,6 +158,43 @@ void Minigotchi::boot() {
   }
 
   Config::loadConfig();
+
+  Serial.println("Initializing SD card...");
+  // Display::updateDisplay(Minigotchi::mood.getNeutral(), "Init SD Card..."); // Optional, ensure mood is accessible
+
+  if (!SD.begin(SD_CS_PIN)) {
+    Serial.println(Minigotchi::mood.getBroken() + " SD Card Mount Failed or Card not present!");
+    // Display::updateDisplay(Minigotchi::mood.getBroken(), "SD Card Mount Failed!");
+  } else {
+    Serial.println(Minigotchi::mood.getHappy() + " SD card initialized.");
+    // Display::updateDisplay(Minigotchi::mood.getHappy(), "SD Card OK!");
+    uint8_t cardType = SD.cardType();
+    if (cardType == CARD_NONE) {
+      Serial.println("No SD card attached");
+    } else if (cardType == CARD_MMC) {
+      Serial.println("Card type: MMC");
+    } else if (cardType == CARD_SD) {
+      Serial.println("Card type: SDSC");
+    } else if (cardType == CARD_SDHC) {
+      Serial.println("Card type: SDHC");
+    } else {
+      Serial.println("Card type: UNKNOWN");
+    }
+    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+    Serial.printf("SD Card Size: %lluMB\n", cardSize);
+
+    File testFile = SD.open("/minigotchi_sd_test.txt", FILE_WRITE);
+    if (testFile) {
+      testFile.println("Minigotchi SD test successful!");
+      testFile.close();
+      Serial.println("Successfully created and wrote to /minigotchi_sd_test.txt");
+    } else {
+      Serial.println(Minigotchi::mood.getBroken() + " Failed to open /minigotchi_sd_test.txt for writing.");
+      // Display::updateDisplay(Minigotchi::mood.getBroken(), "SD Test File Fail!");
+    }
+  }
+  // delay(Config::shortDelay); // Optional delay
+
   ESP_ERROR_CHECK(err);
   ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
   ESP_ERROR_CHECK(esp_wifi_set_country(&Config::ctryCfg));
