@@ -67,6 +67,7 @@ public:
   static void loadConfig();
   static void saveConfig();
   static int currentEpoch;
+  static Mood& getMood() { return mood; }
 
 private:
   static void WebUITask(void *pvParameters);
