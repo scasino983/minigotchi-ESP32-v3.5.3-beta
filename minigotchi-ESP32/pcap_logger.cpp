@@ -1,7 +1,6 @@
-#include "pcap_loger.h"
+#include "pcap_logger.h"
 #include "config.h"       // For potential future use (e.g. SD_CS_PIN if moved here)
-#include "minigotchi.h"   // For Minigotchi::mood access (for Serial prints)
-
+#include "minigotchi.h"   // For Minigotchi::getMood() access (for Serial prints)
 #include <SD.h>           // Arduino SD Card library
 #include <SPI.h>          // Required for SD library if not implicitly included elsewhere
 #include "freertos/FreeRTOS.h" // For FreeRTOS types
@@ -254,17 +253,25 @@ esp_err_t pcap_logger_write_packet(const void *packet_payload, size_t length) {
     }
 
     if (pcap_buffer_offset + total_packet_size_in_buffer > PCAP_BUFFER_SIZE) {
-        xSemaphoreGive(pcap_mutex);
+        xSemaphoreGive(pcap_mutex); 
         esp_err_t flush_err = pcap_logger_flush_buffer();
         if (flush_err != ESP_OK) {
-            // Mutex should have been released by flush_buffer in case of error or success
-            return flush_err;
+            // If flush fails, re-take mutex before returning to maintain consistent state for caller
+            if (xSemaphoreTake(pcap_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+                 Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not re-take mutex after failed flush in write_packet.");
+            }
+            return flush_err; 
         }
-        // After successful flush, buffer is empty, re-take mutex to write current packet
-        if (xSemaphoreTake(pcap_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        if (xSemaphoreTake(pcap_mutex, portMAX_DELAY) != pdTRUE) { 
              Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not re-take mutex after flushing.");
              return ESP_ERR_TIMEOUT;
         }
+    }
+    
+    if (total_packet_size_in_buffer > PCAP_BUFFER_SIZE) {
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP Error: Packet too large for buffer (" + String(total_packet_size_in_buffer) + " bytes).");
+        xSemaphoreGive(pcap_mutex);
+        return ESP_ERR_NO_MEM;
     }
 
     memcpy(pcap_ram_buffer + pcap_buffer_offset, &pkt_header, sizeof(pcap_packet_header_t));

@@ -24,6 +24,7 @@
 #include <SPI.h>
 #include <SD.h>
 #define SD_CS_PIN 5
+#include "wifi_sniffer.h" // Include the WiFi sniffer header
 
 // Arduino required setup function - runs once at startup
 void setup() {

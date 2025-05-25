@@ -25,6 +25,7 @@
   #define SD_CS_PIN 5
 #endif
 
+// Initializing static members
 Mood &Minigotchi::mood = Mood::getInstance();
 WebUI *Minigotchi::web = nullptr;
 int Minigotchi::currentEpoch = 0;
@@ -102,49 +103,68 @@ void Minigotchi::boot() {
   Serial.println("################################################");
   Serial.println(" ");
 
-  esp_err_t err_nvs = nvs_flash_init();
-  if (err_nvs == ESP_ERR_NVS_NO_FREE_PAGES || err_nvs == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+  // Initialize NVS
+  esp_err_t err = nvs_flash_init();
+  if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
-    err_nvs = nvs_flash_init();
+    err = nvs_flash_init();
   }
-  ESP_ERROR_CHECK(err_nvs);
-  Serial.println(Minigotchi::mood.getNeutral() + " NVS initialized.");
+  ESP_ERROR_CHECK(err);
 
-  Config::loadConfig();
-  Serial.println(Minigotchi::mood.getNeutral() + " Configuration loaded from NVS.");
-  Serial.println(Minigotchi::mood.getNeutral() + " Config::configured is currently: " + (Config::configured ? "true" : "false"));
+  Config::loadConfig(); // Load configuration (sets Config::configured)
 
+  // SD Card Initialization
   Serial.println(Minigotchi::mood.getNeutral() + " Initializing SD card...");
   if (!SD.begin(SD_CS_PIN)) {
-    Serial.println(Minigotchi::mood.getBroken() + " SD Card Mount Failed or Card not present!");
+    Serial.println("SD card initialization failed!");
+    Display::updateDisplay(getMood().getSad(), "SD Card Failed!");
+    delay(Config::shortDelay);
   } else {
-    Serial.println(Minigotchi::mood.getHappy() + " SD card initialized.");
-    uint8_t cardType = SD.cardType();
-    String cardTypeStr = "UNKNOWN";
-    if (cardType == CARD_NONE) cardTypeStr = "None";
-    else if (cardType == CARD_MMC) cardTypeStr = "MMC";
-    else if (cardType == CARD_SD)  cardTypeStr = "SDSC";
-    else if (cardType == CARD_SDHC) cardTypeStr = "SDHC";
-    Serial.println(Minigotchi::mood.getNeutral() + " Card type: " + cardTypeStr);
-    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-    Serial.printf("SD Card Size: %lluMB\n", cardSize);
-
+    Serial.println("SD card initialized successfully!");
+    Display::updateDisplay(getMood().getHappy(), "SD Card OK!");
+    delay(Config::shortDelay);
+    // SD card test file creation
     File testFile = SD.open("/minigotchi_sd_test.txt", FILE_WRITE);
     if (testFile) {
       testFile.println("Minigotchi SD test successful at " + String(millis()));
       testFile.close();
-      Serial.println(Minigotchi::mood.getHappy() + " Successfully created/wrote to /minigotchi_sd_test.txt");
+      Serial.println("Successfully created/wrote to /minigotchi_sd_test.txt");
     } else {
-      Serial.println(Minigotchi::mood.getBroken() + " Failed to open /minigotchi_sd_test.txt for writing.");
+      Serial.println("Failed to open /minigotchi_sd_test.txt for writing.");
     }
-
-    // Initialize PCAP Logger (No dummy packet test here now, sniffer will use it)
-    Serial.println(Minigotchi::mood.getNeutral() + " Initializing PCAP Logger...");
+    // PCAP logger test
+    Serial.println("Initializing PCAP Logger for test...");
     if (pcap_logger_init() == ESP_OK) {
-      Serial.println(Minigotchi::mood.getHappy() + " PCAP Logger initialized.");
-      // PCAP file will be opened by wifi_sniffer_start()
+      Serial.println("PCAP Logger initialized.");
+      if (pcap_logger_open_new_file() == ESP_OK) {
+        Serial.println("New PCAP file opened for test.");
+        const uint8_t dummy_packet[] = {
+            0x80, 0x00, 0x00, 0x00, 0xff,0xff,0xff,0xff,0xff,0xff, 0x01,0x02,0x03,0x04,0x05,0x06, 
+            0x01,0x02,0x03,0x04,0x05,0x06, 0x00, 0x00, 0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+            0x64,0x00,0x01,0x04,0x00,0x04,'T','E','S','T',0x01,0x08,0x82,0x84,0x8b,0x96,0x0c,0x12,0x18,0x24
+        };
+        size_t dummy_len = sizeof(dummy_packet);
+        esp_err_t write_err = pcap_logger_write_packet(dummy_packet, dummy_len);
+        if (write_err == ESP_OK) {
+          Serial.println("Dummy packet written to PCAP buffer.");
+        } else {
+          Serial.println("Failed to write dummy packet. Error: " + String(esp_err_to_name(write_err)));
+        }
+        esp_err_t flush_err = pcap_logger_flush_buffer();
+        if (flush_err == ESP_OK) {
+            Serial.println("PCAP buffer flushed successfully for test.");
+        } else {
+            Serial.println("Failed to flush PCAP buffer for test. Error: " + String(esp_err_to_name(flush_err)));
+        }
+        pcap_logger_close_file(); 
+        Serial.println("PCAP file closed after test write.");
+      } else {
+        Serial.println("Failed to open new PCAP file for testing.");
+      }
+      pcap_logger_deinit();
+      Serial.println("PCAP Logger de-initialized after test.");
     } else {
-      Serial.println(Minigotchi::mood.getBroken() + " PCAP Logger failed to initialize.");
+      Serial.println("PCAP Logger failed to initialize.");
     }
   }
   delay(Config::shortDelay);
@@ -181,17 +201,10 @@ void Minigotchi::boot() {
       Serial.println(Minigotchi::mood.getNeutral() + " WiFi sniffer stopped after test.");
   } else {
       Serial.println(Minigotchi::mood.getBroken() + " Failed to start WiFi sniffer from boot(). Error: " + String(esp_err_to_name(sniffer_err)));
-      // If sniffer fails to start, ensure PCAP logger is deinitialized if it was init'd
-      pcap_logger_deinit(); // Safe to call even if already deinitialized or mutex is null
   }
 
-  Parasite::sendName();
   Minigotchi::finish();
 }
-
-// ... (rest of Minigotchi methods: info, finish, version, mem, cpu, monStart, monStop, cycle, detect, deauth, advertise, spam)
-// Ensure these are identical to the version from Turn 37/41 if no other changes were intended for them.
-// For brevity, I'm not re-listing them here but they should be part of this file.
 
 void Minigotchi::info() {
   delay(Config::shortDelay);
@@ -270,7 +283,7 @@ void Minigotchi::cycle() {
 
 void Minigotchi::detect() {
   Parasite::readData();
-  Pwnagotchi::detect();
+  Pwnagotchi::detect(); // This is where Pwnagotchi scanning happens
 }
 
 void Minigotchi::deauth() {
