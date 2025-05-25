@@ -32,11 +32,11 @@ static int get_next_pcap_file_index(const char *base_path, const char *base_file
     File pcapDir = SD.open(base_path);
 
     if (!pcapDir) {
-        Serial.println(Minigotchi::mood.getBroken() + " Failed to open PCAP directory for indexing: " + String(base_path));
+        Serial.println(Minigotchi::getMood().getBroken() + " Failed to open PCAP directory for indexing: " + String(base_path));
         return 0; 
     }
     if (!pcapDir.isDirectory()) {
-        Serial.println(Minigotchi::mood.getBroken() + " " + String(base_path) + " is not a directory.");
+        Serial.println(Minigotchi::getMood().getBroken() + " " + String(base_path) + " is not a directory.");
         pcapDir.close();
         return 0;
     }
@@ -72,28 +72,28 @@ static int get_next_pcap_file_index(const char *base_path, const char *base_file
 
 esp_err_t pcap_logger_init(void) {
     if (pcap_mutex != NULL) {
-        Serial.println(Minigotchi::mood.getNeutral() + " PCAP logger already initialized.");
+        Serial.println(Minigotchi::getMood().getNeutral() + " PCAP logger already initialized.");
         return ESP_OK; 
     }
 
     pcap_mutex = xSemaphoreCreateMutex();
     if (pcap_mutex == NULL) {
-        Serial.println(Minigotchi::mood.getBroken() + " Failed to create PCAP mutex!");
+        Serial.println(Minigotchi::getMood().getBroken() + " Failed to create PCAP mutex!");
         return ESP_FAIL;
     }
 
     if (!SD.exists(PCAP_DIR)) {
-        Serial.println(Minigotchi::mood.getNeutral() + " PCAP directory " + String(PCAP_DIR) + " not found, creating...");
+        Serial.println(Minigotchi::getMood().getNeutral() + " PCAP directory " + String(PCAP_DIR) + " not found, creating...");
         if (SD.mkdir(PCAP_DIR)) {
-            Serial.println(Minigotchi::mood.getHappy() + " PCAP directory created: " + String(PCAP_DIR));
+            Serial.println(Minigotchi::getMood().getHappy() + " PCAP directory created: " + String(PCAP_DIR));
         } else {
-            Serial.println(Minigotchi::mood.getBroken() + " Failed to create PCAP directory: " + String(PCAP_DIR));
+            Serial.println(Minigotchi::getMood().getBroken() + " Failed to create PCAP directory: " + String(PCAP_DIR));
             vSemaphoreDelete(pcap_mutex);
             pcap_mutex = NULL;
             return ESP_FAIL;
         }
     }
-    Serial.println(Minigotchi::mood.getHappy() + " PCAP Logger initialized.");
+    Serial.println(Minigotchi::getMood().getHappy() + " PCAP Logger initialized.");
     return ESP_OK;
 }
 
@@ -120,7 +120,7 @@ esp_err_t pcap_logger_open_new_file(void) {
     }
 
     if (xSemaphoreTake(pcap_mutex, portMAX_DELAY) != pdTRUE) {
-        Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not take mutex for opening file.");
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not take mutex for opening file.");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -130,13 +130,13 @@ esp_err_t pcap_logger_open_new_file(void) {
 
     current_pcap_file = SD.open(current_pcap_filename, FILE_WRITE);
     if (!current_pcap_file) {
-        Serial.println(Minigotchi::mood.getBroken() + " Failed to open new PCAP file: " + String(current_pcap_filename));
+        Serial.println(Minigotchi::getMood().getBroken() + " Failed to open new PCAP file: " + String(current_pcap_filename));
         xSemaphoreGive(pcap_mutex);
         return ESP_FAIL;
     }
 
     if (write_pcap_global_header_to_file(current_pcap_file) != ESP_OK) {
-        Serial.println(Minigotchi::mood.getBroken() + " Failed to write global PCAP header to: " + String(current_pcap_filename));
+        Serial.println(Minigotchi::getMood().getBroken() + " Failed to write global PCAP header to: " + String(current_pcap_filename));
         current_pcap_file.close();
         xSemaphoreGive(pcap_mutex);
         return ESP_FAIL;
@@ -144,7 +144,7 @@ esp_err_t pcap_logger_open_new_file(void) {
 
     pcap_buffer_offset = 0; 
     pcap_file_is_open = true;
-    Serial.println(Minigotchi::mood.getHappy() + " Opened new PCAP file: " + String(current_pcap_filename));
+    Serial.println(Minigotchi::getMood().getHappy() + " Opened new PCAP file: " + String(current_pcap_filename));
     xSemaphoreGive(pcap_mutex);
     return ESP_OK;
 }
@@ -156,26 +156,26 @@ void pcap_logger_close_file(void) {
     if (!pcap_file_is_open) return;
 
     if (xSemaphoreTake(pcap_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) { // Increased timeout
-        Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not take mutex for closing file.");
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not take mutex for closing file.");
         return;
     }
     
     if (pcap_buffer_offset > 0) {
         xSemaphoreGive(pcap_mutex); // Release mutex before calling flush
-        Serial.println(Minigotchi::mood.getNeutral() + " Flushing remaining PCAP buffer before closing file...");
+        Serial.println(Minigotchi::getMood().getNeutral() + " Flushing remaining PCAP buffer before closing file...");
         esp_err_t flush_err = pcap_logger_flush_buffer();
         if (flush_err != ESP_OK) {
-             Serial.println(Minigotchi::mood.getBroken() + " PCAP: Error flushing buffer during close: " + String(esp_err_to_name(flush_err)));
+             Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Error flushing buffer during close: " + String(esp_err_to_name(flush_err)));
         }
         if (xSemaphoreTake(pcap_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) { // Re-acquire
-            Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not re-take mutex for closing file after flush.");
+            Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not re-take mutex for closing file after flush.");
             // Fall through to try and close file anyway, but log error
         }
     }
 
     if (current_pcap_file) {
         current_pcap_file.close();
-        Serial.println(Minigotchi::mood.getHappy() + " Closed PCAP file: " + String(current_pcap_filename));
+        Serial.println(Minigotchi::getMood().getHappy() + " Closed PCAP file: " + String(current_pcap_filename));
     }
     pcap_file_is_open = false;
     // Only give mutex if it was successfully taken and not given up by an error path
@@ -189,25 +189,25 @@ esp_err_t pcap_logger_flush_buffer(void) {
         return ESP_OK; 
     }
     if (!pcap_file_is_open) { // Added check
-        Serial.println(Minigotchi::mood.getNeutral() + " PCAP: Flush called but file not open.");
+        Serial.println(Minigotchi::getMood().getNeutral() + " PCAP: Flush called but file not open.");
         return ESP_OK;
     }
 
 
     if (xSemaphoreTake(pcap_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) { // Increased timeout
-        Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not take mutex for flushing buffer.");
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not take mutex for flushing buffer.");
         return ESP_ERR_TIMEOUT;
     }
 
     if (!current_pcap_file) { 
-         Serial.println(Minigotchi::mood.getBroken() + " PCAP: Flush error, file not actually open object.");
+         Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Flush error, file not actually open object.");
          xSemaphoreGive(pcap_mutex);
          return ESP_FAIL;
     }
 
     size_t written = current_pcap_file.write(pcap_ram_buffer, pcap_buffer_offset);
     if (written != pcap_buffer_offset) {
-        Serial.println(Minigotchi::mood.getBroken() + " PCAP: Failed to write complete buffer to SD. Written: " + String(written) + " of " + String(pcap_buffer_offset));
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Failed to write complete buffer to SD. Written: " + String(written) + " of " + String(pcap_buffer_offset));
         pcap_buffer_offset = 0; 
         xSemaphoreGive(pcap_mutex);
         return ESP_FAIL;
@@ -215,7 +215,7 @@ esp_err_t pcap_logger_flush_buffer(void) {
     
     // current_pcap_file.flush(); // SD.h File.flush() can be time-consuming; use if essential for immediate write
 
-    Serial.println(Minigotchi::mood.getNeutral() + " Flushed " + String(pcap_buffer_offset) + " bytes to " + String(current_pcap_filename));
+    Serial.println(Minigotchi::getMood().getNeutral() + " Flushed " + String(pcap_buffer_offset) + " bytes to " + String(current_pcap_filename));
     pcap_buffer_offset = 0;
     xSemaphoreGive(pcap_mutex);
     return ESP_OK;
@@ -227,16 +227,16 @@ esp_err_t pcap_logger_write_packet(const void *packet_payload, size_t length) {
     }
     // If file isn't open, try to open one. This makes it more robust if capture starts before explicit open.
     if (!pcap_file_is_open) {
-        Serial.println(Minigotchi::mood.getNeutral() + " PCAP: File not open, attempting to open new file before writing packet.");
+        Serial.println(Minigotchi::getMood().getNeutral() + " PCAP: File not open, attempting to open new file before writing packet.");
         if (pcap_logger_open_new_file() != ESP_OK) {
-            Serial.println(Minigotchi::mood.getBroken() + " PCAP: Failed to auto-open file. Packet not written.");
+            Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Failed to auto-open file. Packet not written.");
             return ESP_FAIL;
         }
     }
 
 
     if (xSemaphoreTake(pcap_mutex, portMAX_DELAY) != pdTRUE) {
-        Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not take mutex for writing packet.");
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not take mutex for writing packet.");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -257,18 +257,18 @@ esp_err_t pcap_logger_write_packet(const void *packet_payload, size_t length) {
         if (flush_err != ESP_OK) {
             // If flush fails, re-take mutex before returning to maintain consistent state for caller
             if (xSemaphoreTake(pcap_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-                 Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not re-take mutex after failed flush in write_packet.");
+                 Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not re-take mutex after failed flush in write_packet.");
             }
             return flush_err; 
         }
         if (xSemaphoreTake(pcap_mutex, portMAX_DELAY) != pdTRUE) { 
-             Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not re-take mutex after flushing.");
+             Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not re-take mutex after flushing.");
              return ESP_ERR_TIMEOUT;
         }
     }
     
     if (total_packet_size_in_buffer > PCAP_BUFFER_SIZE) {
-        Serial.println(Minigotchi::mood.getBroken() + " PCAP Error: Packet too large for buffer (" + String(total_packet_size_in_buffer) + " bytes).");
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP Error: Packet too large for buffer (" + String(total_packet_size_in_buffer) + " bytes).");
         xSemaphoreGive(pcap_mutex);
         return ESP_ERR_NO_MEM;
     }
@@ -289,7 +289,7 @@ esp_err_t pcap_logger_write_packet(const void *packet_payload, size_t length) {
 
 void pcap_logger_deinit(void) {
     if (pcap_mutex == NULL) { 
-        Serial.println(Minigotchi::mood.getNeutral() + " PCAP Logger already de-initialized or was not initialized.");
+        Serial.println(Minigotchi::getMood().getNeutral() + " PCAP Logger already de-initialized or was not initialized.");
         return;
     }
 
@@ -312,12 +312,12 @@ void pcap_logger_deinit(void) {
                  vSemaphoreDelete(pcap_mutex);
                  pcap_mutex = NULL;
             }
-            Serial.println(Minigotchi::mood.getNeutral() + " PCAP Logger de-initialized.");
+            Serial.println(Minigotchi::getMood().getNeutral() + " PCAP Logger de-initialized.");
         } else {
-            Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not re-take mutex for final deletion in deinit. Mutex NOT deleted.");
+            Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not re-take mutex for final deletion in deinit. Mutex NOT deleted.");
             // pcap_mutex is not NULLed here, as it wasn't deleted.
         }
     } else {
-        Serial.println(Minigotchi::mood.getBroken() + " PCAP: Could not take mutex for deinit. File may not be closed. Mutex NOT deleted.");
+        Serial.println(Minigotchi::getMood().getBroken() + " PCAP: Could not take mutex for deinit. File may not be closed. Mutex NOT deleted.");
     }
 }
