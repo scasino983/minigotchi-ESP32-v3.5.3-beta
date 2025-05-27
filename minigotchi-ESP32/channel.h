@@ -1,55 +1,32 @@
-/*
- * Minigotchi: An even smaller Pwnagotchi
- * Copyright (C) 2024 dj1ch
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-/**
- * channel.h: header files for channel.cpp
- */
-
 #ifndef CHANNEL_H
 #define CHANNEL_H
 
-#include "config.h"
-#include "display.h"
+#include "wifi_sniffer.h"
 #include "minigotchi.h"
-#include "mood.h"
-#include "parasite.h"
-#include <WiFi.h>
-#include <esp_wifi.h>
+#include "esp_wifi.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <Arduino.h>
 
-// forward declaration of mood class
-class Mood;
+// Forward declaration of the channel hopping task
+void channel_hopping_task(void *pvParameter);
+
+// Channel hopping task handle - declared externally to be accessible from channel_hopper.cpp
+extern TaskHandle_t channel_hopping_task_handle;
 
 class Channel {
 public:
   static void init(int initChannel);
   static void cycle();
   static void switchChannel(int newChannel);
-  static int getChannel();
-  static void checkChannel(int channel);
+  static bool checkChannel(int channel);
   static bool isValidChannel(int channel);
-  static int channelList[13]; // 13 channels
+  static int getChannel();
 
 private:
-  static Mood &mood;
-  static int randomIndex;
-  static int numChannels;
-  static int currentChannel;
-  static int newChannel;
+  static int channelList[13];
+  static class Mood &mood;
 };
 
 #endif // CHANNEL_H

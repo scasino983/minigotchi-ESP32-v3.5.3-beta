@@ -39,7 +39,7 @@
 bool Config::deauth = true;
 bool Config::advertise = true;
 bool Config::scan = true;
-bool Config::spam = true;
+// bool Config::spam = true; // BLE functionality removed
 
 // define access point ssid and password
 const char *Config::ssid = "minigotchi";
