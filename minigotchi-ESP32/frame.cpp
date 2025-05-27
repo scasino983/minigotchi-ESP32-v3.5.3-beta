@@ -250,6 +250,7 @@ uint8_t *Frame::packModified() {
  * Sends a pwnagotchi packet in AP mode with improved stability
  */
 bool Frame::send() {
+  Serial.printf("Frame::send() - Entry. Free heap: %d\n", ESP.getFreeHeap());
   // Save current WiFi state before changing it
   wifi_mode_t previousMode;
   esp_wifi_get_mode(&previousMode);
@@ -259,13 +260,13 @@ bool Frame::send() {
   // If we were in promiscuous mode, turn it off properly with explicit wifi_driver_can_send_packet check
   if (wasPromiscuous) {
     esp_wifi_set_promiscuous(false);
-    delay(50);  // Give WiFi state time to settle - increased for better stability
+    delay(75);  // Give WiFi state time to settle - increased for better stability
   }
   
   // Clean up existing connections if any
   WiFi.softAPdisconnect(true);
   WiFi.disconnect(true);
-  delay(50);
+  delay(50); // Keep 50ms delay for disconnects as it's not directly related to tx stability
   
   // Set to AP mode for frame transmission
   esp_err_t mode_err = esp_wifi_set_mode(WIFI_MODE_AP);
@@ -274,72 +275,102 @@ bool Frame::send() {
     // Try to restore previous state
     if (wasPromiscuous) {
       esp_wifi_set_mode(previousMode);
-      delay(50);
+      delay(30); // Adjusted delay
       esp_wifi_set_promiscuous(true);
     }
+    Serial.printf("Frame::send() - Exit (mode set failed). Free heap: %d\n", ESP.getFreeHeap());
     return false;
   }
   
-  delay(50);  // Give WiFi time to settle into AP mode - increased for better stability
+  delay(75);  // Give WiFi time to settle into AP mode - increased for better stability
 
   // Create normal frame
+  Serial.printf("Frame::send() - About to pack frame. Free heap: %d\n", ESP.getFreeHeap());
   uint8_t *frame = Frame::pack();
-  size_t frameSize = Frame::pwngridHeaderLength + Frame::essidLength + Frame::headerLength;
+  size_t frameSize = 0; // Initialize frameSize
+  if (frame != nullptr) {
+    frameSize = Frame::pwngridHeaderLength + Frame::essidLength + Frame::headerLength;
+    Serial.printf("Frame::send() - Frame packed. Frame size: %d. Free heap: %d\n", frameSize, ESP.getFreeHeap());
+  } else {
+    Serial.println("Frame::send() - Frame::pack() returned nullptr.");
+    // Restore previous WiFi state
+    esp_wifi_set_mode(previousMode);
+    if (wasPromiscuous) {
+      delay(30); // Adjusted delay
+      esp_wifi_set_promiscuous(true);
+    }
+    Serial.printf("Frame::send() - Exit (pack failed). Free heap: %d\n", ESP.getFreeHeap());
+    return false;
+  }
 
   // Send frames
   esp_err_t err = ESP_FAIL;
   
-  // Only try to send if we have valid memory and frame creation succeeded
-  if (frame != nullptr) {
-    // Check heap before sending
-    if (ESP.getFreeHeap() < 10000) {
-      Serial.println(mood.getBroken() + " Low memory before sending, aborting");
+  // Only try to send if we have valid memory and frame creation succeeded (already checked)
+  // Check heap before sending
+  if (ESP.getFreeHeap() < 10000) { // This check seems redundant now with heap checks in pack and before tx, but keeping as a safeguard.
+    Serial.println(mood.getBroken() + " Low memory before sending, aborting");
+    if (frame != nullptr) {
       delete[] frame;
       frame = nullptr;
-      
-      // Restore previous WiFi state
-      esp_wifi_set_mode(previousMode);
-      if (wasPromiscuous) {
-        delay(50);
-        esp_wifi_set_promiscuous(true);
-      }
-      return false;
     }
     
-    delay(50); // A small delay before transmission - increased for better stability
-    err = esp_wifi_80211_tx(WIFI_IF_AP, frame, frameSize, false);
+    // Restore previous WiFi state
+    esp_wifi_set_mode(previousMode);
+    if (wasPromiscuous) {
+      delay(30); // Adjusted delay
+      esp_wifi_set_promiscuous(true);
+    }
+    Serial.printf("Frame::send() - Exit (low memory). Free heap: %d\n", ESP.getFreeHeap());
+    return false;
+  }
     
-    if (err == ESP_OK) {
+  delay(75); // A small delay before transmission - increased for better stability
+  Serial.printf("Frame::send() - Attempting to transmit first frame. WiFi Interface: WIFI_IF_AP. Free heap: %d\n", ESP.getFreeHeap());
+  err = esp_wifi_80211_tx(WIFI_IF_AP, frame, frameSize, false);
+  Serial.printf("Frame::send() - First frame tx result: %s\n", esp_err_to_name(err));
+    
+  if (err == ESP_OK) {
+    if (frame != nullptr) {
       delete[] frame;
       frame = nullptr;  // Prevent use-after-free
+    }
 
-      // Try to send the modified frame
-      frame = Frame::packModified();
-      
+    // Try to send the modified frame
+    Serial.printf("Frame::send() - About to pack modified frame. Free heap: %d\n", ESP.getFreeHeap());
+    frame = Frame::packModified();
+    if (frame != nullptr) {
+      frameSize = Frame::pwngridHeaderLength + Frame::essidLength + Frame::headerLength;
+      Serial.printf("Frame::send() - Modified frame packed. Frame size: %d. Free heap: %d\n", frameSize, ESP.getFreeHeap());
+      delay(75);  // Small delay between transmissions - increased for better stability
+      Serial.printf("Frame::send() - Attempting to transmit modified frame. WiFi Interface: WIFI_IF_AP. Free heap: %d\n", ESP.getFreeHeap());
+      err = esp_wifi_80211_tx(WIFI_IF_AP, frame, frameSize, false);
+      Serial.printf("Frame::send() - Modified frame tx result: %s\n", esp_err_to_name(err));
       if (frame != nullptr) {
-        frameSize = Frame::pwngridHeaderLength + Frame::essidLength + Frame::headerLength;
-        delay(50);  // Small delay between transmissions - increased for better stability
-        err = esp_wifi_80211_tx(WIFI_IF_AP, frame, frameSize, false);
         delete[] frame;
         frame = nullptr;  // Prevent use-after-free
-      } else {
-        err = ESP_FAIL;  // Memory allocation failed
       }
     } else {
+      Serial.println("Frame::send() - Frame::packModified() returned nullptr.");
+      err = ESP_FAIL;  // Memory allocation failed
+      // frame is already nullptr here
+    }
+  } else {
+    if (frame != nullptr) {
       delete[] frame;  // Clean up on error
       frame = nullptr;
     }
   }
 
   // Restore previous WiFi state
-  delay(20);  // Give WiFi time to finish transmission
+  delay(30);  // Give WiFi time to finish transmission
   esp_wifi_set_mode(previousMode);
   
   if (wasPromiscuous) {
-    delay(20);  // Give WiFi time to change mode
+    delay(30);  // Give WiFi time to change mode
     esp_wifi_set_promiscuous(true);
   }
-
+  Serial.printf("Frame::send() - Exit. Free heap: %d\n", ESP.getFreeHeap());
   return (err == ESP_OK);
 }
 
@@ -347,11 +378,13 @@ bool Frame::send() {
  * Full usage of Pwnagotchi's advertisments on the Minigotchi.
  */
 void Frame::advertise() {
+  Serial.printf("Frame::advertise() - Entry. Free heap: %d\n", ESP.getFreeHeap());
   int packets = 0;
   unsigned long startTime = millis();
 
   if (!Config::advertise) {
     Serial.println(mood.getNeutral() + " Advertisement disabled in config.");
+    Serial.printf("Frame::advertise() - Exit (disabled). Free heap: %d\n", ESP.getFreeHeap());
     return;  // Skip advertisement if disabled
   }
 
@@ -374,11 +407,12 @@ void Frame::advertise() {
   
   // Check available heap memory
   int availableHeap = ESP.getFreeHeap();
-  int maxPackets = min(25, availableHeap / 8192);  // Reduced max packets and increased memory per packet
+  int maxPackets = min(15, availableHeap / 10240);  // More conservative packet count
   maxPackets = max(3, maxPackets);  // At least send 3 packets
   
   Serial.printf("%s Available heap: %d bytes, sending max %d packets\n", 
                mood.getNeutral().c_str(), availableHeap, maxPackets);
+  Serial.printf("Frame::advertise() - Starting packet send loop. Max packets: %d. Free heap: %d\n", maxPackets, ESP.getFreeHeap());
 
   // Reset WiFi completely before sending frames
   WiFi.disconnect(true);
@@ -410,11 +444,12 @@ void Frame::advertise() {
       }
       
       // Add a larger delay between packets to avoid overloading the WiFi stack
-      delay(100);  // Increased from 50ms
+      delay(150);  // Increased from 100ms
     } else {
       Serial.println(mood.getBroken() + " Advertisement failed to send!");
+      Serial.printf("Frame::advertise() - Frame::send() failed. Loop iteration: %d. Free heap: %d\n", i, ESP.getFreeHeap());
       Display::updateDisplay(mood.getBroken(), "Advertisement failed to send!");
-      delay(200);  // Longer delay after a failure - increased from 100ms
+      delay(250);  // Longer delay after a failure - increased from 200ms
     }
   }
 
@@ -424,8 +459,9 @@ void Frame::advertise() {
   
   // Restart the sniffer if it was running before
   if (sniffer_was_running) {
-    delay(200);  // Give WiFi time to settle - increased from 100ms
+    delay(250);  // Give WiFi time to settle - increased from 200ms
     Serial.println(mood.getNeutral() + " Restarting sniffer after advertisement...");
     wifi_sniffer_start();
   }
+  Serial.printf("Frame::advertise() - Exit. Free heap: %d\n", ESP.getFreeHeap());
 }
