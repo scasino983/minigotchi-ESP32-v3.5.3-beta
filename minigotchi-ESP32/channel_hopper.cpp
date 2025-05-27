@@ -110,24 +110,25 @@ void channel_hopping_task(void *pvParameter) {
             
             if (channel_hop_paused) {
                 // We're in recovery mode - just wait
-                Serial.println(Minigotchi::getMood().getNeutral() + " CHAN_HOP_TASK: Channel hopping paused for recovery");
+                Serial.println(Minigotchi::getMood().getNeutral() + " CHAN_HOP_TASK: Channel hopping paused for recovery. Waiting longer.");
+                vTaskDelay(pdMS_TO_TICKS(RECOVERY_PAUSE_MS)); // Explicit longer pause
                 channel_hop_paused = false; // Try again next time
-                consecutive_failures = 0;
-                
-                // Store recovery time for monitoring
-                last_recovery_time = xTaskGetTickCount();
+                consecutive_failures = 0; 
+                last_recovery_time = xTaskGetTickCount(); // Keep this
             } else {
                 // Try to do the channel hop
                 int prev_channel = Channel::getChannel();
+                int prev_channel_for_debug = prev_channel; // Capture before Channel::cycle changes it
                 
                 // Call the Channel class to handle the actual channel switching
                 Channel::cycle();
                 
                 // Add a delay to ensure the channel has time to switch
-                delay(100);
+                delay(250); // New delay
                 
                 // Check if channel switch was successful
                 int new_channel = Channel::getChannel();
+                Serial.printf("CHAN_HOP_TASK: prev_channel_for_debug=%d, Channel::getChannel() after cycle and delay reports: %d\n", prev_channel_for_debug, new_channel);
                 if (new_channel != prev_channel) {
                     // Success!
                     successful_hops++;
@@ -160,17 +161,7 @@ void channel_hopping_task(void *pvParameter) {
                     if (consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
                         Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: Too many consecutive failures. Pausing channel hopping briefly.");
                         channel_hop_paused = true;
-                        
-                        // Full WiFi reset
-                        Minigotchi::monStop();
-                        delay(500);
-                        
-                        // Set a specific channel to ensure we're on a valid channel
-                        esp_wifi_set_mode(WIFI_MODE_STA);
-                        esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // Start on channel 1
-                        delay(200);                        
-                        Minigotchi::monStart();
-                        delay(200);
+                        // Removed WiFi reset block as per instructions
                     }
                 }
             }

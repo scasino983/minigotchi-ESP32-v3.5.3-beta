@@ -12,7 +12,7 @@
 #include "pwnagotchi.h"
 #include "deauth.h"
 #include "parasite.h"
-#include "ble.h"
+// #include "ble.h" // BLE functionality removed
 #include "webui.h"
 #include "AXP192.h"
 
@@ -346,10 +346,10 @@ void Minigotchi::advertise() {
   Frame::advertise();
 }
 
-void Minigotchi::spam() {
-  Parasite::readData();
-  Ble::spam();
-}
+// void Minigotchi::spam() { // BLE functionality removed
+//  Parasite::readData();
+//  Ble::spam();
+// }
 
 void Minigotchi::displaySecurityEvaluation() {
   Serial.println(Minigotchi::mood.getNeutral() + " --- Security Evaluation ---");

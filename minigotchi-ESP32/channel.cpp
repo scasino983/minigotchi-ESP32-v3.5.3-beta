@@ -136,20 +136,21 @@ void Channel::cycle() {
   
   // Ensure in STA mode for channel switch
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA));
-  delay(50);
+  delay(75); // Changed delay
   
   // Switch channel
   esp_err_t err = esp_wifi_set_channel(newChannel, WIFI_SECOND_CHAN_NONE);
   
   if (err != ESP_OK) {
-    Serial.printf("%s Channel switch failed. Error: %s (0x%x)\n", 
+    Serial.printf("%s Channel::cycle() esp_wifi_set_channel FAILED. Requested: %d, Error: %s (0x%x)\n", 
                   Minigotchi::getMood().getBroken().c_str(), 
+                  newChannel,
                   esp_err_to_name(err), 
                   err);
     failedAttempts++;
   } else {
     // Verify switch was successful
-    delay(50);
+    delay(200); // Changed delay
     int actualChannel = getChannel();
     if (actualChannel == newChannel) {
       Serial.printf("%s Successfully switched to channel %d\n", 
@@ -162,10 +163,12 @@ void Channel::cycle() {
       Display::updateDisplay(Minigotchi::getMood().getNeutral(), 
                             "CH: " + String(newChannel));
     } else {
-      Serial.printf("%s Channel verification failed. Requested: %d, Actual: %d\n", 
+      Serial.printf("%s Channel::cycle() internal verification FAILED. Requested: %d, Read back: %d after 200ms delay. Error for set_channel was: %s (0x%x)\n", 
                     Minigotchi::getMood().getBroken().c_str(), 
                     newChannel, 
-                    actualChannel);
+                    actualChannel,
+                    esp_err_to_name(err), // err from esp_wifi_set_channel call above
+                    err);
       failedAttempts++;
     }
   }
