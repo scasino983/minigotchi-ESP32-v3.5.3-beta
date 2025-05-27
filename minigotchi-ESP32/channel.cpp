@@ -83,78 +83,206 @@ void Channel::init(int initChannel) {
 }
 
 /**
- * Cycle channels
+ * Cycle channels with improved reliability
  */
 void Channel::cycle() {
-  // get channels
+  static uint8_t lastSuccessfulChannel = 0;
+  static uint8_t failedAttempts = 0;
+  const uint8_t MAX_FAILED_ATTEMPTS = 3;
+  
+  // Get channels
   int numChannels = sizeof(channelList) / sizeof(channelList[0]);
-
-  // select a random one
-  int randomIndex = random(numChannels);
-  int newChannel = channelList[randomIndex];
-
-  // switch here
-  switchChannel(newChannel);
+  
+  // Get current channel before switching
+  int currentChannel = getChannel();
+  
+  // Select the next channel using a smarter strategy
+  int newChannel;
+  
+  if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
+    // After multiple failures, try the last known good channel
+    newChannel = (lastSuccessfulChannel > 0) ? lastSuccessfulChannel : Config::channel;
+    Serial.println(Minigotchi::getMood().getIntense() + " Too many failed channel switches, reverting to known good channel: " + String(newChannel));
+    failedAttempts = 0; // Reset counter
+  } else {
+    // Normal channel selection - prioritize 1, 6, and 11 which are non-overlapping channels
+    int primaryChannels[] = {1, 6, 11};
+    static int primaryIndex = 0;
+    
+    // 70% chance to use primary channels, 30% chance to use any other channel
+    bool usePrimary = (random(10) < 7);
+    
+    if (usePrimary) {
+      // Cycle through 1, 6, 11
+      primaryIndex = (primaryIndex + 1) % 3;
+      newChannel = primaryChannels[primaryIndex];
+    } else {
+      // Random channel selection, avoiding current channel
+      do {
+        int randomIndex = random(numChannels);
+        newChannel = channelList[randomIndex];
+      } while (newChannel == currentChannel && numChannels > 1);
+    }
+  }
+  
+  // Stop monitor mode completely before switching channel
+  Serial.println(Minigotchi::getMood().getNeutral() + " Pausing monitor mode for channel switch...");
+  Minigotchi::monStop();
+  delay(150);  // Increased delay to ensure WiFi state settles
+  
+  // Save WiFi state
+  wifi_mode_t previousMode;
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_get_mode(&previousMode));
+  
+  // Ensure in STA mode for channel switch
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA));
+  delay(50);
+  
+  // Switch channel
+  esp_err_t err = esp_wifi_set_channel(newChannel, WIFI_SECOND_CHAN_NONE);
+  
+  if (err != ESP_OK) {
+    Serial.printf("%s Channel switch failed. Error: %s (0x%x)\n", 
+                  Minigotchi::getMood().getBroken().c_str(), 
+                  esp_err_to_name(err), 
+                  err);
+    failedAttempts++;
+  } else {
+    // Verify switch was successful
+    delay(50);
+    int actualChannel = getChannel();
+    if (actualChannel == newChannel) {
+      Serial.printf("%s Successfully switched to channel %d\n", 
+                    Minigotchi::getMood().getHappy().c_str(), 
+                    newChannel);
+      lastSuccessfulChannel = newChannel;
+      failedAttempts = 0;
+      
+      // Update display with success
+      Display::updateDisplay(Minigotchi::getMood().getNeutral(), 
+                            "CH: " + String(newChannel));
+    } else {
+      Serial.printf("%s Channel verification failed. Requested: %d, Actual: %d\n", 
+                    Minigotchi::getMood().getBroken().c_str(), 
+                    newChannel, 
+                    actualChannel);
+      failedAttempts++;
+    }
+  }
+  
+  // Restore previous WiFi mode
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(previousMode));
+  delay(50);
+  
+  // Restart monitor mode
+  Serial.println(Minigotchi::getMood().getNeutral() + " Resuming monitor mode after channel switch...");
+  Minigotchi::monStart();
 }
 
 /**
- * Switch to given channel
+ * Switch to given channel with improved reliability
  * @param newChannel New channel to switch to
  */
 void Channel::switchChannel(int newChannel) {
-  // switch to channel
-  delay(Config::shortDelay);
-  Serial.print(mood.getSleeping() + " Switching to channel ");
-  Serial.println(newChannel);
-  Serial.println(" ");
+  if (!isValidChannel(newChannel)) {
+    Serial.printf("%s Invalid channel %d requested. Using default channel %d instead.\n", 
+                  mood.getBroken().c_str(), newChannel, Config::channel);
+    newChannel = Config::channel;
+  }
+
+  Serial.printf("%s Switching to channel %d (was on channel %d)\n", 
+                mood.getSleeping().c_str(), newChannel, getChannel());
   Display::updateDisplay(mood.getSleeping(),
                          "Switching to channel " + (String)newChannel);
-  delay(Config::shortDelay);
+  
+  // Save current WiFi state
+  wifi_mode_t current_mode;
+  esp_wifi_get_mode(&current_mode);
+  
+  // Completely stop WiFi for a clean switch
+  bool was_promiscuous = false;
+  esp_wifi_get_promiscuous(&was_promiscuous);
+  
+  if (was_promiscuous) {
+    esp_wifi_set_promiscuous(false);
+  }
+  
+  // Make sure we're in STA mode for the channel switch
+  esp_wifi_set_mode(WIFI_MODE_STA);
+  
+  // Set the channel - with multiple attempts if needed
+  esp_err_t err = ESP_FAIL;
+  int max_attempts = 3;
+  
+  for (int attempt = 1; attempt <= max_attempts; attempt++) {
+    err = esp_wifi_set_channel(newChannel, WIFI_SECOND_CHAN_NONE);
+    
+    if (err == ESP_OK) {
+      // Verify the switch actually worked
+      delay(50);
+      int actual_channel = getChannel();
+      
+      if (actual_channel == newChannel) {
+        // Success!
+        break;
+      } else {
+        Serial.printf("%s Channel verification failed on attempt %d. Requested: %d, Actual: %d\n", 
+                     mood.getSad().c_str(), attempt, newChannel, actual_channel);
+        err = ESP_FAIL;  // Force another attempt
+      }
+    }
+    
+    if (err != ESP_OK && attempt < max_attempts) {
+      Serial.printf("%s Channel switch attempt %d failed. Error: %s. Retrying...\n", 
+                   mood.getSad().c_str(), attempt, esp_err_to_name(err));
+      delay(150 * attempt);  // Increasing backoff delay
+    }
+  }
 
-  // monitor this one channel
-  Minigotchi::monStop();
-  esp_err_t err = esp_wifi_set_channel(newChannel, WIFI_SECOND_CHAN_NONE);
-  Minigotchi::monStart();
+  // Restore previous WiFi state
+  esp_wifi_set_mode(current_mode);
+  
+  if (was_promiscuous) {
+    esp_wifi_set_promiscuous(true);
+  }
 
-  // check if the channel switch was successful
+  // Check final result
   if (err == ESP_OK) {
-    checkChannel(newChannel);
+    Serial.printf("%s Successfully switched to channel %d\n", 
+                 mood.getNeutral().c_str(), getChannel());
+    Display::updateDisplay(mood.getNeutral(),
+                         "On channel " + (String)getChannel());
   } else {
-
-    Serial.println(mood.getBroken() + " Failed to switch channel.");
-    Serial.println(" ");
-    Display::updateDisplay(mood.getBroken(), "Failed to switch channel.");
-    checkChannel(newChannel);
-    delay(Config::shortDelay);
+    Serial.printf("%s Failed to switch to channel %d after %d attempts. Error: %s\n", 
+                 mood.getBroken().c_str(), newChannel, max_attempts, esp_err_to_name(err));
+    Display::updateDisplay(mood.getBroken(), 
+                         "Failed switch to ch " + (String)newChannel);
   }
 }
 
 /**
- * Check if the channel switch was successful
- * @param channel Channel to compare with current channel
+ * Check if the channel switch was successful and display status
+ * @param expected_channel Channel that should have been set
+ * @return true if channel matches expected, false otherwise
  */
-void Channel::checkChannel(int channel) {
+bool Channel::checkChannel(int expected_channel) {
   int currentChannel = Channel::getChannel();
-  if (channel == currentChannel) {
-    Serial.print(mood.getNeutral() + " Currently on channel ");
-    Serial.println(currentChannel);
+  bool success = (expected_channel == currentChannel);
+  
+  if (success) {
+    Serial.printf("%s Currently on channel %d (as expected)\n", 
+                 mood.getNeutral().c_str(), currentChannel);
     Display::updateDisplay(mood.getNeutral(),
-                           "Currently on channel " + (String)getChannel());
-    Serial.println(" ");
-    delay(Config::shortDelay);
+                         "On channel " + (String)currentChannel);
   } else {
-    Serial.print(mood.getBroken() + " Channel switch to channel ");
-    Serial.print(channel);
-    Serial.println(" has failed");
-    Serial.print(mood.getBroken() + " Currently on channel ");
-    Serial.print(currentChannel);
-    Serial.println(" instead");
-    Serial.println(" ");
-    Display::updateDisplay(mood.getBroken(), "Channel switch to " +
-                                                 (String)channel +
-                                                 " has failed");
-    delay(Config::shortDelay);
+    Serial.printf("%s Channel mismatch! Expected: %d, Actual: %d\n", 
+                 mood.getBroken().c_str(), expected_channel, currentChannel);
+    Display::updateDisplay(mood.getBroken(), 
+                         "Ch mismatch! Exp:" + (String)expected_channel + 
+                         " Act:" + (String)currentChannel);
   }
+  
+  return success;
 }
 
 /**

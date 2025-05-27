@@ -24,7 +24,7 @@
 #define MINIGOTCHI_H
 
 #include "AXP192.h"
-#include "ble.h"
+// #include "ble.h" // BLE functionality removed
 #include "channel.h"
 #include "config.h"
 #include "deauth.h"
@@ -61,7 +61,8 @@ public:
   static void detect();
   static void deauth();
   static void advertise();
-  static void spam();
+  // static void spam(); // BLE functionality removed
+  static void displaySecurityEvaluation(); // New function for security stats
   static void epoch();
   static int addEpoch();
   static void loadConfig();

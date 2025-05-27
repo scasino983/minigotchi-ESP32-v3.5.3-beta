@@ -28,7 +28,7 @@
 #include <Arduino.h>
 #include <AsyncTCP.h>
 #include <DNSServer.h>
-#include <ESPAsyncWebServer.h> // using https://github.com/bmorcelli/ESPAsyncWebServer pirata is the GOAT!!!
+#include <ESPAsyncWebServer.h>
 #include <WiFi.h>
 
 // forward declaration of mood class
@@ -41,14 +41,14 @@ public:
   ~WebUI();
   static void setupServer();
   static void updateWhitelist(String newWhitelist);
-  static void processDNS() { if(running) dnsServer.processNextRequest(); }
+  static void processDNS() { if(running) WebUI::dnsServer.processNextRequest(); }
   static const char html[] PROGMEM;
   static bool running;
 
-  static DNSServer dnsServer; // <-- Add this declaration
+  static DNSServer dnsServer;
 
 private:
-  static Mood &mood;
+  static Mood &mood; // Declare mood
 };
 
 #endif // WEBUI_H

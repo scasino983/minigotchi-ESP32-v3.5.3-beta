@@ -23,7 +23,9 @@
 #include "webui.h"
 
 bool WebUI::running = false;
-DNSServer WebUI::dnsServer; // Correct static member definition
+
+// Initialize static members
+DNSServer WebUI::dnsServer;
 AsyncWebServer server(80);
 
 /**
@@ -151,29 +153,18 @@ WebUI::WebUI() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(Config::ssid, Config::pass);
   Serial.print("AP IP address: "); Serial.println(WiFi.softAPIP());
-
   setupServer();
 
-  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
-  dnsServer.setTTL(300);
-  if (WiFi.softAPIP()) { dnsServer.start(53, "*", WiFi.softAPIP()); } else { Serial.println("Error: softAPIP is not valid, DNS server not started."); }
+  WebUI::dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+  WebUI::dnsServer.setTTL(300);
+  if (WiFi.softAPIP()) { WebUI::dnsServer.start(53, "*", WiFi.softAPIP()); } else { Serial.println("Error: softAPIP is not valid, DNS server not started."); }
 
   server.begin();
   WebUI::running = true;
   Serial.println("WebUI Constructor: Setup complete. Returning control to WebUITask.");
 }
 
-WebUI::~WebUI() {
-  // debugging
-  Serial.println("WebUI Destructor called");
-
-  // nah fuck it
-  dnsServer.stop();
-  server.end();
-  WiFi.softAPdisconnect(true);
-
-  running = false;
-}
+WebUI::~WebUI() {}
 
 /**
  * Sets up Web Server

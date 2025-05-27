@@ -12,14 +12,16 @@
 #include "pwnagotchi.h"
 #include "deauth.h"
 #include "parasite.h"
-#include "ble.h"
+// #include "ble.h" // BLE functionality removed
 #include "webui.h"
 #include "AXP192.h"
 
 #include <SPI.h>
 #include <SD.h>
 #include "pcap_logger.h"
+#include "handshake_logger.h" // Added to resolve missing declarations
 #include "wifi_sniffer.h" // <-- NEW INCLUDE
+
 
 #ifndef SD_CS_PIN
   #define SD_CS_PIN 5
@@ -131,8 +133,7 @@ void Minigotchi::boot() {
       Serial.println("Successfully created/wrote to /minigotchi_sd_test.txt");
     } else {
       Serial.println("Failed to open /minigotchi_sd_test.txt for writing.");
-    }
-    // PCAP logger test
+    }    // PCAP logger test
     Serial.println("Initializing PCAP Logger for test...");
     if (pcap_logger_init() == ESP_OK) {
       Serial.println("PCAP Logger initialized.");
@@ -161,10 +162,31 @@ void Minigotchi::boot() {
       } else {
         Serial.println("Failed to open new PCAP file for testing.");
       }
-      pcap_logger_deinit();
-      Serial.println("PCAP Logger de-initialized after test.");
     } else {
-      Serial.println("PCAP Logger failed to initialize.");
+      Serial.println("Failed to initialize PCAP Logger for testing.");
+    }
+    
+    // Handshake CSV logger test
+    Serial.println("Initializing Handshake CSV Logger for test...");
+    if (handshake_logger_init() == ESP_OK) {
+      Serial.println("Handshake CSV Logger initialized.");
+      if (handshake_logger_open_new_file() == ESP_OK) {
+        Serial.println("New Handshake CSV file opened for test.");
+        // Test entry with sample handshake data
+        esp_err_t csv_err = handshake_logger_write_entry(
+          "aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66", "M1 (AP to STA)", 6, "Test_SSID");
+        if (csv_err == ESP_OK) {
+          Serial.println("Test handshake entry written to CSV file.");
+        } else {
+          Serial.println("Failed to write test handshake entry. Error: " + String(esp_err_to_name(csv_err)));
+        }
+        handshake_logger_close_file();
+        Serial.println("Handshake CSV file closed after test write.");
+      } else {
+        Serial.println("Failed to open new Handshake CSV file for testing.");
+      }
+    } else {
+      Serial.println("Failed to initialize Handshake CSV Logger for testing.");
     }
   }
   delay(Config::shortDelay);
@@ -253,27 +275,55 @@ void Minigotchi::cpu() {
 }
 
 void Minigotchi::monStart() {
+  // Make sure we start from a clean state
   WiFi.softAPdisconnect(true);
   WiFi.disconnect(true);
+  
+  // Give a small delay to allow the disconnect to complete
+  delay(20);
+  
+  // Set mode to STA for monitor mode
   WiFi.mode(WIFI_STA);
+  
+  // Another small delay before enabling promiscuous mode
+  delay(20);
+  
+  // Set promiscuous mode with error handling
   esp_err_t promisc_err = esp_wifi_set_promiscuous(true);
   if (promisc_err != ESP_OK) {
       Serial.println(Minigotchi::mood.getBroken() + " Failed to start monitor mode. Error: " + String(esp_err_to_name(promisc_err)));
       return;
   }
+  
+  // Set channel to default if channel is invalid
+  uint8_t primary;
+  wifi_second_chan_t second;
+  esp_wifi_get_channel(&primary, &second);
+  if (primary < 1 || primary > 13) {
+    esp_wifi_set_channel(Config::channel, WIFI_SECOND_CHAN_NONE);
+  }
+  
   Serial.println(Minigotchi::mood.getIntense() + " Monitor mode started.");
 }
 
 void Minigotchi::monStop() {
+  // Disable promiscuous callback first
+  esp_wifi_set_promiscuous_rx_cb(NULL);
+  
+  // Then disable promiscuous mode
   esp_err_t promisc_err = esp_wifi_set_promiscuous(false);
-   if (promisc_err != ESP_OK && promisc_err != ESP_ERR_WIFI_NOT_STARTED ){
+  if (promisc_err != ESP_OK && promisc_err != ESP_ERR_WIFI_NOT_STARTED) {
       Serial.println(Minigotchi::mood.getBroken() + " Failed to stop monitor mode properly. Error: " + String(esp_err_to_name(promisc_err)));
   } else if (promisc_err == ESP_OK) {
     Serial.println(Minigotchi::mood.getNeutral() + " Promiscuous mode stopped.");
   }
-  // Revert to a known state, e.g., STA mode (or WIFI_OFF if preferred after sniffing)
+  
+  // Revert to a known state - STA mode
   WiFi.mode(WIFI_STA);
   Serial.println(Minigotchi::mood.getNeutral() + " WiFi mode set to STA after stopping monitor mode.");
+  
+  // Give a short delay to ensure WiFi state has settled
+  delay(20);
 }
 
 void Minigotchi::cycle() {
@@ -296,7 +346,44 @@ void Minigotchi::advertise() {
   Frame::advertise();
 }
 
-void Minigotchi::spam() {
-  Parasite::readData();
-  Ble::spam();
+// void Minigotchi::spam() { // BLE functionality removed
+//  Parasite::readData();
+//  Ble::spam();
+// }
+
+void Minigotchi::displaySecurityEvaluation() {
+  Serial.println(Minigotchi::mood.getNeutral() + " --- Security Evaluation ---");
+  Display::updateDisplay(Minigotchi::mood.getNeutral(), "Security Stats:");
+  delay(Config::shortDelay);
+
+  // Display Live AP Count
+  Serial.println(Minigotchi::mood.getLooking1() + " Scanning for APs...");
+  Display::updateDisplay(Minigotchi::mood.getLooking1(), "Scanning APs...");
+  int apCount = WiFi.scanNetworks(false, true); // Scan hidden SSIDs as well, don't block
+  if (apCount < 0) {
+    Serial.println(Minigotchi::mood.getBroken() + " WiFi scan error!");
+    Display::updateDisplay(Minigotchi::mood.getBroken(), "AP Scan Error");
+    apCount = 0;
+  } else {
+    Serial.println(Minigotchi::mood.getHappy() + " Found " + String(apCount) + " APs.");
+    Display::updateDisplay(Minigotchi::mood.getHappy(), "APs Found: " + String(apCount));
+  }
+  delay(Config::longDelay); // Display for a bit
+  // Placeholder for total handshakes - to be implemented next
+  Serial.println(Minigotchi::mood.getNeutral() + " Total Handshakes: (counting...)");
+  Display::updateDisplay(Minigotchi::mood.getNeutral(), "Handshakes: (counting...)");
+  delay(Config::shortDelay);
+  
+  // Get and display the handshake count
+  int totalHandshakes = 0;
+  if (handshake_logger_get_total_handshakes(&totalHandshakes) == ESP_OK) {
+    Serial.println(Minigotchi::mood.getHappy() + " Total Handshakes: " + String(totalHandshakes));
+    Display::updateDisplay(Minigotchi::mood.getHappy(), "Handshakes: " + String(totalHandshakes));
+  } else {
+    Serial.println(Minigotchi::mood.getBroken() + " Error getting handshake count");
+    Display::updateDisplay(Minigotchi::mood.getBroken(), "Error getting handshake count");
+  }
+  // Serial.println(Minigotchi::mood.getNeutral() + " Total Handshakes: " + String(totalHandshakes));
+  // Display::updateDisplay(Minigotchi::mood.getNeutral(), "Handshakes: " + String(totalHandshakes));
+  // delay(Config::longDelay);
 }
