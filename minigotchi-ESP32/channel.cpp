@@ -124,22 +124,12 @@ void Channel::cycle() {
       } while (newChannel == currentChannel && numChannels > 1);
     }
   }
+    // Use wifi_sniffer_set_channel instead of manually stopping/starting monitor mode
+  // This is more reliable and avoids state transitions
+  Serial.println(Minigotchi::getMood().getNeutral() + " Using dedicated channel switch function...");
   
-  // Stop monitor mode completely before switching channel
-  Serial.println(Minigotchi::getMood().getNeutral() + " Pausing monitor mode for channel switch...");
-  Minigotchi::monStop();
-  delay(150);  // Increased delay to ensure WiFi state settles
-  
-  // Save WiFi state
-  wifi_mode_t previousMode;
-  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_get_mode(&previousMode));
-  
-  // Ensure in STA mode for channel switch
-  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA));
-  delay(50);
-  
-  // Switch channel
-  esp_err_t err = esp_wifi_set_channel(newChannel, WIFI_SECOND_CHAN_NONE);
+  // Use the specialized function from wifi_sniffer.cpp
+  esp_err_t err = wifi_sniffer_set_channel(newChannel);
   
   if (err != ESP_OK) {
     Serial.printf("%s Channel switch failed. Error: %s (0x%x)\n", 
@@ -169,14 +159,6 @@ void Channel::cycle() {
       failedAttempts++;
     }
   }
-  
-  // Restore previous WiFi mode
-  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(previousMode));
-  delay(50);
-  
-  // Restart monitor mode
-  Serial.println(Minigotchi::getMood().getNeutral() + " Resuming monitor mode after channel switch...");
-  Minigotchi::monStart();
 }
 
 /**
@@ -189,72 +171,36 @@ void Channel::switchChannel(int newChannel) {
                   mood.getBroken().c_str(), newChannel, Config::channel);
     newChannel = Config::channel;
   }
-
   Serial.printf("%s Switching to channel %d (was on channel %d)\n", 
                 mood.getSleeping().c_str(), newChannel, getChannel());
   Display::updateDisplay(mood.getSleeping(),
                          "Switching to channel " + (String)newChannel);
   
-  // Save current WiFi state
-  wifi_mode_t current_mode;
-  esp_wifi_get_mode(&current_mode);
+  // Use the dedicated wifi_sniffer_set_channel function instead of manual steps
+  esp_err_t err = wifi_sniffer_set_channel(newChannel);
   
-  // Completely stop WiFi for a clean switch
-  bool was_promiscuous = false;
-  esp_wifi_get_promiscuous(&was_promiscuous);
-  
-  if (was_promiscuous) {
-    esp_wifi_set_promiscuous(false);
-  }
-  
-  // Make sure we're in STA mode for the channel switch
-  esp_wifi_set_mode(WIFI_MODE_STA);
-  
-  // Set the channel - with multiple attempts if needed
-  esp_err_t err = ESP_FAIL;
-  int max_attempts = 3;
-  
-  for (int attempt = 1; attempt <= max_attempts; attempt++) {
-    err = esp_wifi_set_channel(newChannel, WIFI_SECOND_CHAN_NONE);
-    
-    if (err == ESP_OK) {
-      // Verify the switch actually worked
-      delay(50);
-      int actual_channel = getChannel();
-      
-      if (actual_channel == newChannel) {
-        // Success!
-        break;
-      } else {
-        Serial.printf("%s Channel verification failed on attempt %d. Requested: %d, Actual: %d\n", 
-                     mood.getSad().c_str(), attempt, newChannel, actual_channel);
-        err = ESP_FAIL;  // Force another attempt
-      }
-    }
-    
-    if (err != ESP_OK && attempt < max_attempts) {
-      Serial.printf("%s Channel switch attempt %d failed. Error: %s. Retrying...\n", 
-                   mood.getSad().c_str(), attempt, esp_err_to_name(err));
-      delay(150 * attempt);  // Increasing backoff delay
-    }
-  }
-
-  // Restore previous WiFi state
-  esp_wifi_set_mode(current_mode);
-  
-  if (was_promiscuous) {
-    esp_wifi_set_promiscuous(true);
-  }
-
   // Check final result
   if (err == ESP_OK) {
-    Serial.printf("%s Successfully switched to channel %d\n", 
-                 mood.getNeutral().c_str(), getChannel());
-    Display::updateDisplay(mood.getNeutral(),
-                         "On channel " + (String)getChannel());
+    // Verify the channel actually changed
+    delay(50);
+    int actual_channel = getChannel();
+    
+    if (actual_channel == newChannel) {
+      Serial.printf("%s Successfully switched to channel %d\n", 
+                   mood.getNeutral().c_str(), actual_channel);
+      Display::updateDisplay(mood.getNeutral(),
+                           "On channel " + (String)actual_channel);
+    } else {
+      Serial.printf("%s Channel verification failed. Requested: %d, Actual: %d\n", 
+                   mood.getSad().c_str(), newChannel, actual_channel);
+      Display::updateDisplay(mood.getSad(), 
+                           "Ch mismatch! Exp:" + (String)newChannel + 
+                           " Act:" + (String)actual_channel);
+      err = ESP_FAIL;  // Mark as failed
+    }
   } else {
-    Serial.printf("%s Failed to switch to channel %d after %d attempts. Error: %s\n", 
-                 mood.getBroken().c_str(), newChannel, max_attempts, esp_err_to_name(err));
+    Serial.printf("%s Failed to switch to channel %d. Error: %s\n", 
+                 mood.getBroken().c_str(), newChannel, esp_err_to_name(err));
     Display::updateDisplay(mood.getBroken(), 
                          "Failed switch to ch " + (String)newChannel);
   }

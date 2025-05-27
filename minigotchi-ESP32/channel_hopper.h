@@ -4,6 +4,9 @@
 #include "esp_err.h"
 #include <stdint.h>
 
+// Access task handle to check if task is running
+extern TaskHandle_t channel_hopping_task_handle;
+
 /**
  * @brief Start the channel hopping task
  * 

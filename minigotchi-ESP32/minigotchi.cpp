@@ -21,6 +21,7 @@
 #include "pcap_logger.h"
 #include "handshake_logger.h" // Added to resolve missing declarations
 #include "wifi_sniffer.h" // <-- NEW INCLUDE
+#include <WiFi.h> // Include WiFi.h for WiFi.mode() calls
 
 
 #ifndef SD_CS_PIN
@@ -274,56 +275,239 @@ void Minigotchi::cpu() {
   delay(Config::shortDelay);
 }
 
-void Minigotchi::monStart() {
-  // Make sure we start from a clean state
+bool Minigotchi::monStart() {
+  // First check if WiFi is initialized at all
+  wifi_mode_t mode;
+  esp_err_t mode_err = esp_wifi_get_mode(&mode);
+  
+  if (mode_err == ESP_ERR_WIFI_NOT_INIT) {
+    Serial.println(Minigotchi::mood.getIntense() + " WiFi not initialized, performing initialization...");
+    
+    // Initialize WiFi with default configuration
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_err_t init_err = esp_wifi_init(&cfg);
+    
+    if (init_err != ESP_OK) {
+      Serial.printf("%s Failed to initialize WiFi: %s\n", 
+                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(init_err));
+      return false;
+    }
+    
+    // Start WiFi with retry mechanism
+    esp_err_t start_err = ESP_FAIL;
+    for (int retry = 0; retry < 3; retry++) {
+      start_err = esp_wifi_start();
+      if (start_err == ESP_OK) {
+        break;
+      }
+      
+      Serial.printf("%s Failed to start WiFi (attempt %d): %s\n", 
+                   Minigotchi::mood.getBroken().c_str(), retry+1, esp_err_to_name(start_err));
+      
+      if (retry < 2) {
+        delay(100 * (retry + 1));
+      }
+    }
+    
+    if (start_err != ESP_OK) {
+      Serial.printf("%s Failed to start WiFi after multiple attempts: %s\n", 
+                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(start_err));
+      esp_wifi_deinit(); // Clean up
+      return false;
+    }
+    
+    // Give WiFi time to initialize
+    delay(150);
+    
+    // Re-check mode after initialization
+    mode_err = esp_wifi_get_mode(&mode);
+    if (mode_err != ESP_OK) {
+      Serial.printf("%s Failed to get WiFi mode after init: %s\n", 
+                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(mode_err));
+      return false;
+    }
+  } else if (mode_err != ESP_OK) {
+    Serial.printf("%s Error checking WiFi mode: %s\n", 
+                 Minigotchi::mood.getBroken().c_str(), esp_err_to_name(mode_err));
+    return false;
+  }
+  
+  // Make sure any existing connections are closed
   WiFi.softAPdisconnect(true);
   WiFi.disconnect(true);
   
   // Give a small delay to allow the disconnect to complete
-  delay(20);
+  delay(100); // Increased for better stability
   
-  // Set mode to STA for monitor mode
-  WiFi.mode(WIFI_STA);
+  // Set mode to STA for monitor mode with retry
+  bool sta_mode_set = false;
+  for (int retry = 0; retry < 3; retry++) {
+    esp_err_t sta_err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (sta_err == ESP_OK) {
+      sta_mode_set = true;
+      break;
+    }
+    
+    Serial.printf("%s Failed to set WiFi to STA mode (attempt %d): %s\n", 
+                 Minigotchi::mood.getBroken().c_str(), retry+1, esp_err_to_name(sta_err));
+    
+    if (retry < 2) {
+      delay(100 * (retry + 1));
+    }
+  }
+  
+  if (!sta_mode_set) {
+    Serial.println(Minigotchi::mood.getBroken() + " Failed to set WiFi to STA mode after multiple attempts.");
+    return false;
+  }
   
   // Another small delay before enabling promiscuous mode
-  delay(20);
+  delay(100); // Increased for better stability
   
-  // Set promiscuous mode with error handling
-  esp_err_t promisc_err = esp_wifi_set_promiscuous(true);
-  if (promisc_err != ESP_OK) {
-      Serial.println(Minigotchi::mood.getBroken() + " Failed to start monitor mode. Error: " + String(esp_err_to_name(promisc_err)));
-      return;
+  // First check if we're already in promiscuous mode
+  bool is_promiscuous = false;
+  esp_wifi_get_promiscuous(&is_promiscuous);
+  
+  if (is_promiscuous) {
+    Serial.println(Minigotchi::mood.getNeutral() + " Already in promiscuous mode.");
+    return true;
   }
   
-  // Set channel to default if channel is invalid
-  uint8_t primary;
-  wifi_second_chan_t second;
-  esp_wifi_get_channel(&primary, &second);
-  if (primary < 1 || primary > 13) {
-    esp_wifi_set_channel(Config::channel, WIFI_SECOND_CHAN_NONE);
+  // Set promiscuous mode with error handling and retry
+  bool success = false;
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    esp_err_t promisc_err = esp_wifi_set_promiscuous(true);
+    
+    if (promisc_err == ESP_OK) {
+      success = true;
+      break;
+    } else {
+      Serial.printf("%s Failed to start monitor mode (attempt %d): %s\n", 
+                   Minigotchi::mood.getSad().c_str(), attempt, esp_err_to_name(promisc_err));
+      
+      if (attempt < 3) {
+        // Retry with increasing delay
+        delay(100 * attempt);
+        
+        // Try restarting WiFi before the next attempt
+        WiFi.mode(WIFI_OFF);
+        delay(100);
+        WiFi.mode(WIFI_STA);
+        delay(100);
+      }
+    }
   }
   
-  Serial.println(Minigotchi::mood.getIntense() + " Monitor mode started.");
+  if (success) {
+    Serial.println(Minigotchi::mood.getHappy() + " Monitor mode started successfully.");
+  } else {
+    Serial.println(Minigotchi::mood.getBroken() + " Failed to start monitor mode after multiple attempts.");
+    
+    // One last desperate attempt with a full WiFi reset
+    Serial.println(Minigotchi::mood.getIntense() + " Attempting full WiFi reset as last resort...");
+    
+    // Full cleanup
+    esp_wifi_stop();
+    delay(100);
+    esp_wifi_deinit();
+    delay(150);
+    
+    // Reinitialize
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    if (esp_wifi_init(&cfg) != ESP_OK || esp_wifi_start() != ESP_OK) {
+      Serial.println(Minigotchi::mood.getBroken() + " Last resort WiFi reset failed.");
+      return false;
+    }
+    
+    // Try STA mode again
+    if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) {
+      Serial.println(Minigotchi::mood.getBroken() + " Failed to set STA mode after reset.");
+      return false;
+    }
+    
+    delay(150);
+    
+    // One final attempt to enable promiscuous mode
+    esp_err_t final_attempt = esp_wifi_set_promiscuous(true);
+    if (final_attempt == ESP_OK) {
+      Serial.println(Minigotchi::mood.getHappy() + " Monitor mode started after last resort reset!");
+      success = true;
+    } else {
+      Serial.printf("%s Final attempt to start monitor mode failed: %s\n", 
+                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(final_attempt));
+    }
+  }
+  
+  // Verify we're actually in promiscuous mode
+  esp_wifi_get_promiscuous(&is_promiscuous);
+  if (!is_promiscuous && success) {
+    Serial.println(Minigotchi::mood.getBroken() + " WARNING: Monitor mode state verification failed!");
+    success = false;
+  }
+  
+  return success;
 }
 
 void Minigotchi::monStop() {
-  // Disable promiscuous callback first
-  esp_wifi_set_promiscuous_rx_cb(NULL);
-  
-  // Then disable promiscuous mode
-  esp_err_t promisc_err = esp_wifi_set_promiscuous(false);
-  if (promisc_err != ESP_OK && promisc_err != ESP_ERR_WIFI_NOT_STARTED) {
-      Serial.println(Minigotchi::mood.getBroken() + " Failed to stop monitor mode properly. Error: " + String(esp_err_to_name(promisc_err)));
-  } else if (promisc_err == ESP_OK) {
-    Serial.println(Minigotchi::mood.getNeutral() + " Promiscuous mode stopped.");
+  // First check if WiFi is initialized
+  wifi_mode_t mode;
+  esp_err_t mode_err = esp_wifi_get_mode(&mode);
+
+  if (mode_err == ESP_ERR_WIFI_NOT_INIT) {
+    Serial.println(mood.getBroken() + " WiFi not initialized, cannot stop monitor mode properly.");
+    // Try to reinitialize WiFi for cleanup
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    if (esp_wifi_init(&cfg) == ESP_OK) {
+      esp_wifi_start();
+      delay(100);
+      WiFi.mode(WIFI_STA);
+      Serial.println(mood.getNeutral() + " WiFi reinitialized in STA mode.");
+    } else {
+      Serial.println(mood.getBroken() + " Failed to reinitialize WiFi for monStop.");
+    }
+    return;
   }
-  
-  // Revert to a known state - STA mode
-  WiFi.mode(WIFI_STA);
-  Serial.println(Minigotchi::mood.getNeutral() + " WiFi mode set to STA after stopping monitor mode.");
-  
-  // Give a short delay to ensure WiFi state has settled
-  delay(20);
+
+  // Check if promiscuous mode is actually active
+  bool is_promiscuous = false;
+  esp_err_t check_err = esp_wifi_get_promiscuous(&is_promiscuous);
+  if (check_err != ESP_OK) {
+    Serial.println(mood.getBroken() + " Error checking promiscuous mode: " + String(esp_err_to_name(check_err)));
+  }
+
+  // Always disable callback
+  esp_wifi_set_promiscuous_rx_cb(NULL);
+
+  // Try to disable promiscuous mode with retries
+  bool success = false;
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    esp_err_t promisc_off_err = esp_wifi_set_promiscuous(false);
+    if (promisc_off_err == ESP_OK) {
+      success = true;
+      break;
+    } else {
+      Serial.println(mood.getSad() + " Failed to stop monitor mode on attempt " + String(attempt) + ". Error: " + String(esp_err_to_name(promisc_off_err)));
+      delay(100 * attempt);
+    }
+  }
+
+  if (success) {
+    Serial.println(mood.getNeutral() + " Promiscuous mode stopped.");
+  } else {
+    Serial.println(mood.getBroken() + " Failed to stop monitor mode properly after multiple attempts.");
+    // Force WiFi reset as a last resort
+    esp_wifi_stop();
+    delay(100);
+    esp_wifi_deinit();
+    delay(150);
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    if (esp_wifi_init(&cfg) == ESP_OK && esp_wifi_start() == ESP_OK) {
+      WiFi.mode(WIFI_STA);
+      Serial.println(mood.getNeutral() + " WiFi reset and set to STA mode after failed monStop.");
+    } else {
+      Serial.println(mood.getBroken() + " Last resort WiFi reset failed in monStop.");
+    }
+  }
 }
 
 void Minigotchi::cycle() {

@@ -55,7 +55,7 @@ public:
   static void version();
   static void mem();
   static void cpu();
-  static void monStart();
+  static bool monStart();
   static void monStop();
   static void cycle();
   static void detect();
