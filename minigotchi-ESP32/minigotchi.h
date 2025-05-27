@@ -62,6 +62,7 @@ public:
   static void deauth();
   static void advertise();
   static void spam();
+  static void displaySecurityEvaluation(); // New function for security stats
   static void epoch();
   static int addEpoch();
   static void loadConfig();
