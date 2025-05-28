@@ -23,6 +23,7 @@
 #include "display.h"
 #include "display_test.h"
 #include "display_diagnostics.h"
+#include "display_variables.h"
 
 #if disp
 TFT_eSPI tft; // Define TFT_eSPI object
@@ -330,6 +331,17 @@ void Display::updateDisplay(String face, String text) {
         tft.println(face);
         Display::storedFace = face;
         Serial.println("Updated face: " + face);
+          // Add channel and handshake count at the bottom of the screen
+        if (Config::screen == "CYD" || Config::screen == "T_DISPLAY_S3") {
+          tft.setTextSize(2);
+          tft.setTextColor(TFT_YELLOW);
+          tft.setCursor(20, faceHeight - 40); // Position below face
+          tft.print("Channel: ");
+          tft.println(currentWiFiChannel);
+          tft.setCursor(20, faceHeight - 20);
+          tft.print("Handshakes: ");
+          tft.println(handshakeCount);
+        }
       }
 
       if (textChanged) {

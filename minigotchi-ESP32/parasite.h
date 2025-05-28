@@ -50,6 +50,8 @@ typedef enum {
   START_DEAUTH = 203,
   SKIPPING_WHITELIST = 210,
   SKIPPING_UNENCRYPTED = 211,
+  DEAUTH_STOPPED_USER = 220,
+  DEAUTH_FINISHED = 230,
   DEAUTH_SCAN_ERROR = 250
 } parasite_deauth_status_type_t;
 

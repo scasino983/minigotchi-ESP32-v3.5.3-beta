@@ -22,6 +22,18 @@
  */
 
 #include "pwnagotchi.h"
+#include "wifi_manager.h" // Include the WiFi Manager
+#include "config.h"       // For Config::shortDelay, Config::longDelay
+#include "parasite.h"     // For Parasite::sendPwnagotchiStatus
+
+// Static member definitions
+TaskHandle_t Pwnagotchi::pwnagotchi_scan_task_handle = NULL;
+static portMUX_TYPE pwnagotchi_mutex = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool pwnagotchi_should_stop_scan = false;
+
+// Forward declaration for the task runner if needed, or define before use.
+void pwnagotchi_scan_task_runner(void *pvParameters);
+
 
 /** developer note:
  *
@@ -37,6 +49,7 @@
 
 // start off false
 bool Pwnagotchi::pwnagotchiDetected = false;
+std::string Pwnagotchi::essid = ""; // Definition for static member
 
 /**
  * Gets first instance of mood class
@@ -69,59 +82,154 @@ std::string Pwnagotchi::extractMAC(const unsigned char *buff) {
  * Detect a Pwnagotchi
  */
 void Pwnagotchi::detect() {
-  if (Config::scan) {
-    // set mode and callback
-    Minigotchi::monStart();
-    esp_wifi_set_promiscuous_rx_cb(pwnagotchiCallback);
-
-    // cool animation
-    for (int i = 0; i < 5; ++i) {
-      Serial.println(mood.getLooking1() + " Scanning for Pwnagotchi.");
-      Display::updateDisplay(mood.getLooking1(), "Scanning for Pwnagotchi.");
-      delay(Config::shortDelay);
-      Serial.println(mood.getLooking2() + " Scanning for Pwnagotchi..");
-      Display::updateDisplay(mood.getLooking2(), "Scanning for Pwnagotchi..");
-      delay(Config::shortDelay);
-      Serial.println(mood.getLooking1() + " Scanning for Pwnagotchi...");
-      Display::updateDisplay(mood.getLooking1(), "Scanning for Pwnagotchi...");
-      delay(Config::shortDelay);
-      Serial.println(" ");
-      delay(Config::shortDelay);
+    if (!Config::scan) {
+        Serial.println(mood.getNeutral() + " Pwnagotchi::detect - Scan disabled in config.");
+        return;
     }
 
-    // delay for scanning
-    delay(Config::longDelay);
+    portENTER_CRITICAL(&pwnagotchi_mutex);
+    if (pwnagotchi_scan_task_handle != NULL) {
+        portEXIT_CRITICAL(&pwnagotchi_mutex);
+        Serial.println(mood.getNeutral() + " Pwnagotchi scan is already in progress.");
+        Display::updateDisplay(mood.getNeutral(), "Pwn scan active");
+        return;
+    }
+    // No existing task, so we can proceed to create one.
+    // The task handle will be set by xTaskCreatePinnedToCore, so no need to set it here yet.
+    portEXIT_CRITICAL(&pwnagotchi_mutex);
 
-    // check if the pwnagotchiCallback wasn't triggered during scanning
-    if (!pwnagotchiDetected) {
-      // only searches on your current channel and such afaik,
-      // so this only applies for the current searching area
-      Minigotchi::monStop();
-      Pwnagotchi::stopCallback();
-      Serial.println(mood.getSad() + " No Pwnagotchi found");
-      Display::updateDisplay(mood.getSad(), "No Pwnagotchi found.");
-      Serial.println(" ");
-      Parasite::sendPwnagotchiStatus(NO_FRIEND_FOUND);
+    pwnagotchi_should_stop_scan = false; // Reset stop flag
+
+    BaseType_t result = xTaskCreatePinnedToCore(
+        pwnagotchi_scan_task_runner,
+        "pwn_scan_task",    // Task name
+        4096,               // Stack size (adjust as needed)
+        NULL,               // Parameters
+        1,                  // Priority
+        &pwnagotchi_scan_task_handle, // Task handle
+        0                   // Core (usually 0, Arduino loop on 1)
+    );
+
+    if (result == pdPASS && pwnagotchi_scan_task_handle != NULL) {
+        Serial.println(mood.getIntense() + " Pwnagotchi scan task created successfully.");
     } else {
-      Minigotchi::monStop();
-      Pwnagotchi::stopCallback();
-      if (pwnagotchiDetected) {
-        Serial.println(mood.getHappy() + " Pwnagotchi detected!");
-        Display::updateDisplay(mood.getHappy(), "Pwnagotchi detected!");
-        Parasite::sendPwnagotchiStatus(FRIEND_FOUND);
-      } else {
-        Serial.println(mood.getBroken() + " How did this happen?");
-        Display::updateDisplay(mood.getBroken(), "How did this happen?");
-        Parasite::sendPwnagotchiStatus(FRIEND_SCAN_ERROR);
-      }
+        Serial.println(mood.getBroken() + " FAILED to create Pwnagotchi scan task.");
+        // Ensure task handle is NULL if creation failed.
+        portENTER_CRITICAL(&pwnagotchi_mutex);
+        pwnagotchi_scan_task_handle = NULL; 
+        portEXIT_CRITICAL(&pwnagotchi_mutex);
     }
-  }
 }
+
 
 /**
  * Stops Pwnagotchi scan
  */
-void Pwnagotchi::stopCallback() { esp_wifi_set_promiscuous_rx_cb(nullptr); }
+void Pwnagotchi::stop_scan() { // Renamed from stopCallback
+    Serial.println(mood.getNeutral() + " Pwnagotchi::stop_scan - Received stop request.");
+    portENTER_CRITICAL(&pwnagotchi_mutex);
+    if (pwnagotchi_scan_task_handle == NULL) {
+        portEXIT_CRITICAL(&pwnagotchi_mutex);
+        Serial.println(mood.getNeutral() + " Pwnagotchi::stop_scan - No scan task seems to be running.");
+        pwnagotchi_should_stop_scan = false; // Reset if no task, though task also resets on start
+        return;
+    }
+    portEXIT_CRITICAL(&pwnagotchi_mutex);
+    pwnagotchi_should_stop_scan = true;
+    // The task will see this flag and terminate itself.
+    // Promiscuous mode and WiFi control release are handled by the task itself.
+}
+
+bool Pwnagotchi::is_scanning() {
+    portENTER_CRITICAL(&pwnagotchi_mutex);
+    bool running = (pwnagotchi_scan_task_handle != NULL);
+    portEXIT_CRITICAL(&pwnagotchi_mutex);
+    return running;
+}
+
+
+// Task runner function
+void pwnagotchi_scan_task_runner(void *pvParameters) {
+    Pwnagotchi::pwnagotchiDetected = false; // Reset detection flag for this scan session
+
+    Serial.println(Pwnagotchi::mood.getNeutral() + " Pwnagotchi scan task started.");
+
+    if (!WifiManager::getInstance().request_monitor_mode("pwnagotchi_scan_task")) {
+        Serial.println(Pwnagotchi::mood.getBroken() + " Pwnagotchi Task: Failed to acquire monitor mode.");
+        portENTER_CRITICAL(&pwnagotchi_mutex);
+        Pwnagotchi::pwnagotchi_scan_task_handle = NULL;
+        portEXIT_CRITICAL(&pwnagotchi_mutex);
+        pwnagotchi_should_stop_scan = false; // Reset flag
+        vTaskDelete(NULL);
+        return;
+    }
+    Serial.println(Pwnagotchi::mood.getNeutral() + " Pwnagotchi Task: Monitor mode acquired.");
+    esp_wifi_set_promiscuous_rx_cb(Pwnagotchi::pwnagotchiCallback);
+
+    // Animation part
+    for (int i = 0; i < 5 && !pwnagotchi_should_stop_scan; ++i) {
+        Serial.println(Pwnagotchi::mood.getLooking1() + " Scanning for Pwnagotchi.");
+        Display::updateDisplay(Pwnagotchi::mood.getLooking1(), "Scanning for Pwnagotchi.");
+        vTaskDelay(pdMS_TO_TICKS(Config::shortDelay)); 
+        if (pwnagotchi_should_stop_scan) break;
+
+        Serial.println(Pwnagotchi::mood.getLooking2() + " Scanning for Pwnagotchi..");
+        Display::updateDisplay(Pwnagotchi::mood.getLooking2(), "Scanning for Pwnagotchi..");
+        vTaskDelay(pdMS_TO_TICKS(Config::shortDelay));
+        if (pwnagotchi_should_stop_scan) break;
+        
+        Serial.println(Pwnagotchi::mood.getLooking1() + " Scanning for Pwnagotchi...");
+        Display::updateDisplay(Pwnagotchi::mood.getLooking1(), "Scanning for Pwnagotchi...");
+        vTaskDelay(pdMS_TO_TICKS(Config::shortDelay));
+        if (pwnagotchi_should_stop_scan) break;
+
+        Serial.println(" ");
+        vTaskDelay(pdMS_TO_TICKS(Config::shortDelay));
+    }
+
+    // Main scanning duration loop, checking stop flag
+    TickType_t scan_start_time = xTaskGetTickCount();
+    TickType_t scan_duration_ticks = pdMS_TO_TICKS(Config::longDelay); 
+    
+    if (!pwnagotchi_should_stop_scan) { // Only enter timed scan if not already stopped by animation loop
+        while (!pwnagotchi_should_stop_scan && (xTaskGetTickCount() - scan_start_time < scan_duration_ticks)) {
+            vTaskDelay(pdMS_TO_TICKS(100)); // Check stop flag every 100ms
+        }
+    }
+
+    if (pwnagotchi_should_stop_scan) {
+        Serial.println(Pwnagotchi::mood.getNeutral() + " Pwnagotchi Task: Scan stopped by request.");
+    } else {
+        Serial.println(Pwnagotchi::mood.getNeutral() + " Pwnagotchi Task: Scan duration complete.");
+    }
+    
+    // Stop promiscuous mode and release WiFi resources
+    esp_wifi_set_promiscuous_rx_cb(nullptr);
+    WifiManager::getInstance().release_wifi_control("pwnagotchi_scan_task");
+    Serial.println(Pwnagotchi::mood.getNeutral() + " Pwnagotchi Task: Promiscuous mode stopped, WiFi control released.");
+
+    // Report findings
+    if (!Pwnagotchi::pwnagotchiDetected && !pwnagotchi_should_stop_scan) { // Only report "not found" if scan completed fully
+        Serial.println(Pwnagotchi::mood.getSad() + " No Pwnagotchi found during scan task.");
+        Display::updateDisplay(Pwnagotchi::mood.getSad(), "No Pwnagotchi found.");
+        Parasite::sendPwnagotchiStatus(NO_FRIEND_FOUND);
+    } else if (Pwnagotchi::pwnagotchiDetected) {
+        // Messages for found Pwnagotchi are handled by the callback.
+        // This can be a final summary or removed if redundant.
+        Serial.println(Pwnagotchi::mood.getHappy() + " Pwnagotchi detection process complete (details in callback).");
+    }
+    // If stopped early and something was detected, callback would have handled it.
+    
+    // Task cleanup
+    portENTER_CRITICAL(&pwnagotchi_mutex);
+    Pwnagotchi::pwnagotchi_scan_task_handle = NULL;
+    portEXIT_CRITICAL(&pwnagotchi_mutex);
+    pwnagotchi_should_stop_scan = false; // Reset flag for next run
+
+    Serial.println(Pwnagotchi::mood.getNeutral() + " Pwnagotchi scan task finished.");
+    vTaskDelete(NULL); // Deletes the current task
+}
+
 
 /**
  * Pwnagotchi Scanning callback

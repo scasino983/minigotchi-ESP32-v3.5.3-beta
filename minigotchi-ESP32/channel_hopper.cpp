@@ -4,6 +4,8 @@
 #include "esp_timer.h" // For timing metrics
 #include <WiFi.h> // Include WiFi.h for WiFi.mode() calls
 #include "esp_task_wdt.h" // For watchdog timer management
+#include "wifi_manager.h" // Include the WiFi Manager
+#include "display_variables.h" // For display variables
 
 // Add mutex for task management
 static portMUX_TYPE channel_hopper_mutex = portMUX_INITIALIZER_UNLOCKED;
@@ -52,6 +54,13 @@ esp_err_t start_channel_hopping() {
         // Add delay to ensure task is fully terminated
         delay(100);
     }
+
+    // Request monitor mode from WifiManager
+    if (!WifiManager::getInstance().request_monitor_mode("channel_hopper")) {
+        Serial.println(Minigotchi::getMood().getBroken() + " SNIFFER_START: Failed to acquire monitor mode from WifiManager.");
+        return ESP_FAIL; // Indicate failure
+    }
+    Serial.println(Minigotchi::getMood().getHappy() + " SNIFFER_START: Monitor mode acquired via WifiManager.");
     
     // Reset state variables
     task_should_exit = false;
@@ -118,6 +127,9 @@ void stop_channel_hopping() {
                      Minigotchi::getMood().getNeutral().c_str(),
                      successful_hops, failed_hops, current_hop_interval_ms);
     }
+    // Release WiFi control via WifiManager
+    WifiManager::getInstance().release_wifi_control("channel_hopper");
+    Serial.println(Minigotchi::getMood().getNeutral() + " SNIFFER_STOP: Released WiFi control via WifiManager.");
 }
 
 // Channel hopping task - improved with adaptive timing and error tracking
@@ -180,13 +192,15 @@ void channel_hopping_task(void *pvParameter) {
                 // Add a short delay to ensure the channel has time to switch
                 // but yield to watchdog by using vTaskDelay instead of delay
                 vTaskDelay(pdMS_TO_TICKS(50));
-                
-                // Check if channel switch was successful
+                  // Check if channel switch was successful
                 int new_channel = Channel::getChannel();
                 if (new_channel != prev_channel) {
                     // Success!
                     successful_hops++;
                     consecutive_failures = 0;
+                    
+                    // Update the global channel variable for display
+                    currentWiFiChannel = new_channel;
                     
                     // Gradually decrease the interval back to minimum if it was increased
                     if (current_hop_interval_ms > MIN_HOP_INTERVAL_MS) {
@@ -213,71 +227,31 @@ void channel_hopping_task(void *pvParameter) {
                       
                     // If too many consecutive failures, trigger recovery in smaller steps
                     if (consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
-                        Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: Too many consecutive failures. Performing WiFi reset.");
-                        channel_hop_paused = true;
-                        
-                        // Break up the WiFi reset into smaller steps with watchdog resets between each
-                        
-                        // Step 1: Stop monitor mode properly
-                        Minigotchi::monStop();
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(50));
-                        
-                        // Step 2: Turn WiFi off
-                        WiFi.mode(WIFI_OFF);
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(50));
-                        
-                        // Step 3: Deinitialize WiFi - with error handling
-                        esp_err_t deinit_err = esp_wifi_deinit();
-                        if (deinit_err != ESP_OK) {
-                            Serial.printf("%s CHAN_HOP_TASK: WiFi deinit failed: %s\n", 
-                                         Minigotchi::getMood().getBroken().c_str(),
-                                         esp_err_to_name(deinit_err));
+                        Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: Too many consecutive failures. Requesting WiFi reset via WifiManager.");
+                        channel_hop_paused = true; // Keep this to pause hopping attempts during reset
+
+                        if (WifiManager::getInstance().perform_wifi_reset("channel_hopper_recovery")) {
+                            Serial.println(Minigotchi::getMood().getHappy() + " CHAN_HOP_TASK: WiFi reset successful via WifiManager.");
+                            // WifiManager::perform_wifi_reset leaves WiFi OFF. We need monitor mode.
+                            if (wdt_err == ESP_OK) esp_task_wdt_reset(); // Pet watchdog before next blocking call
+                            vTaskDelay(pdMS_TO_TICKS(50)); // Brief pause
+
+                            if (WifiManager::getInstance().request_monitor_mode("channel_hopper_recovery")) {
+                                Serial.println(Minigotchi::getMood().getHappy() + " CHAN_HOP_TASK: Monitor mode re-acquired after reset.");
+                            } else {
+                                Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: FAILED to re-acquire monitor mode after reset. Task may not function.");
+                                task_should_exit = true; // Exit the task if monitor mode cannot be re-established.
+                            }
+                        } else {
+                            Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: WiFi reset FAILED via WifiManager. Task may not function.");
+                            task_should_exit = true; // Exit the task if reset fails.
                         }
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(100));
-                        
-                        // Step 4: Initialize WiFi with default configuration
-                        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-                        esp_err_t init_err = esp_wifi_init(&cfg);
-                        if (init_err != ESP_OK) {
-                            Serial.printf("%s CHAN_HOP_TASK: WiFi init failed: %s\n", 
-                                         Minigotchi::getMood().getBroken().c_str(),
-                                         esp_err_to_name(init_err));
-                        }
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(100));
-                        
-                        // Step 5: Start WiFi
-                        esp_err_t start_err = esp_wifi_start();
-                        if (start_err != ESP_OK) {
-                            Serial.printf("%s CHAN_HOP_TASK: WiFi start failed: %s\n", 
-                                         Minigotchi::getMood().getBroken().c_str(),
-                                         esp_err_to_name(start_err));
-                        }
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(100));
-                        
-                        // Step 6: Set WiFi mode
-                        WiFi.mode(WIFI_STA);
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(100));
-                        
-                        // Step 7: Set channel
-                        esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // Start on channel 1
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(100));
-                        
-                        // Step 8: Restart monitor mode
-                        Minigotchi::monStart();
-                        if (wdt_err == ESP_OK) esp_task_wdt_reset();
-                        vTaskDelay(pdMS_TO_TICKS(100));
+                        if (wdt_err == ESP_OK) esp_task_wdt_reset(); // Pet watchdog after WifiManager operations
+                        vTaskDelay(pdMS_TO_TICKS(50)); // Brief pause
                         
                         // Reset consecutive failures counter
                         consecutive_failures = 0;
-                        
-                        Serial.println(Minigotchi::getMood().getHappy() + " CHAN_HOP_TASK: WiFi fully reset and monitor mode restarted.");
+                        // channel_hop_paused will be reset at the start of the next valid hop attempt cycle.
                     }
                 }
             }

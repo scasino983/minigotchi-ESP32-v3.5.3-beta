@@ -98,7 +98,15 @@ void Mood::init(const String happy, const String sad, const String broken,
 /**
  * Gets instance of class so it is only used once
  */
-Mood &Mood::getInstance() { return *instance; }
+Mood &Mood::getInstance() {
+  // Check if instance is nullptr and create a default instance if needed
+  if (instance == nullptr) {
+    // Create a default instance with placeholder faces
+    instance = new Mood("^.^", "v.v", "x.x", "o.o", ">.>", "<.<", "-.-", "z.z");
+    Serial.println("WARNING: Mood instance was null! Created default instance.");
+  }
+  return *instance;
+}
 
 /** developer note:
  *

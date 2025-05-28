@@ -21,6 +21,9 @@
  */
 
 #include "frame.h"
+#include "wifi_interface.h"   // For WiFi interface functions
+#include "channel_hopper.h"   // For stop_channel_hopping
+#include "wifi_sniffer.h"     // For is_sniffer_running
 #include "wifi_sniffer.h"
 #include "channel_hopper.h"
 #include "minigotchi.h"

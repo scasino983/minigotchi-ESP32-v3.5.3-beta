@@ -2,6 +2,7 @@
 #include "config.h"       // For SD_CS_PIN (if defined there) or other configs
 #include "minigotchi.h"   // For Minigotchi::getMood() access
 #include "wifi_frames.h"  // For EAPOL message types
+#include "display_variables.h" // For display variables
 
 #include <SD.h>
 #include <SPI.h>
@@ -215,9 +216,11 @@ esp_err_t handshake_logger_write_entry(const char* bssid, const char* station_ma
     
     Serial.println(Minigotchi::getMood().getHappy() + " Recorded handshake with BSSID: " + String(bssid) + 
                   ", SSID: " + String(found_ssid.c_str()) + ", Type: " + String(msg_type));
-    
-    // Increment the handshake count
+      // Increment the handshake count
     handshake_count++;
+    
+    // Update the global handshake count for display
+    handshakeCount = handshake_count;
     
     xSemaphoreGive(csv_mutex);
     return ESP_OK;

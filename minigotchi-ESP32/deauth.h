@@ -34,6 +34,9 @@
 #include <string>
 #include <vector>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h" // For TaskHandle_t
+
 // forward declaration of mood class
 class Mood;
 
@@ -42,24 +45,27 @@ public:
   static void deauth();
   static void list();
   static void add(const std::string &bssids);
+  static void stop(); // New stop method
+  static bool is_running(); // New is_running method
   static uint8_t deauthTemp[26];
-  static uint8_t deauthFrame[26];
-  static uint8_t disassociateFrame[26];
+  static uint8_t deauthFrame[26];  static uint8_t disassociateFrame[26];
   static uint8_t broadcastAddr[6];
   static int randomIndex;
+  static TaskHandle_t deauth_task_handle; // Changed to static member inside class
+  static Mood &mood; // Moved to public for access from task function
+  static void start(); // Moved to public for access from task function
+  static String randomAP; // Moved to public for access from task function
+  static bool deauth_should_stop; // Moved to public for access from task function
+  static std::vector<String> whitelist; // Moved to public for access from task function
 
 private:
-  static Mood &mood;
   static bool send(uint8_t *buf, uint16_t len, bool sys_seq);
   static bool broadcast(uint8_t *mac);
   static void printMac(uint8_t *mac);
   static String printMacStr(uint8_t *mac);
   static bool select();
-  static void start();
   static uint8_t bssid[6];
-  static bool running;
-  static std::vector<String> whitelist;
-  static String randomAP;
+  // static bool running; // Ensure this is fully removed
 };
 
 #endif // DEAUTH_H

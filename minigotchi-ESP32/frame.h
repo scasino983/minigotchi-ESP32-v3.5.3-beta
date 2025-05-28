@@ -26,6 +26,7 @@
 #include "config.h"
 #include "display.h"
 #include "parasite.h"
+#include "wifi_interface.h"  // Added for WiFi control function declarations
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <esp_wifi.h>

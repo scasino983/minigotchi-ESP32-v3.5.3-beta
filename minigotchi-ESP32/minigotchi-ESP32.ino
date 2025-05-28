@@ -27,6 +27,7 @@
 #include "wifi_sniffer.h" // Include the WiFi sniffer header
 #include "handshake_logger.h" // Include the handshake logger header
 #include "channel_hopper.h" // Include the channel hopper header
+#include "wifi_manager.h" // Include the WiFi Manager
 #include <nvs_flash.h> // Include for NVS functions
 
 // Status display variables
@@ -41,6 +42,12 @@ bool commandMode = false;
 // Arduino required setup function - runs once at startup
 void setup() {
   Serial.begin(115200);
+  
+  // Initialize Mood first, since it's used by many other components
+  Minigotchi::boot();
+
+  // Initialize the WiFi Manager Singleton after Mood is initialized
+  WifiManager::getInstance(); 
   
   // Add 3-second window to enter reset command mode
   Serial.println("\n\n*** Press 'r' within 3 seconds to enter reset configuration mode ***");
