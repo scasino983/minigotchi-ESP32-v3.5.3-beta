@@ -1,11 +1,11 @@
 #include "channel.h"
 #include "wifi_sniffer.h"
-#include "minigotchi.h" // For mood
+#include "minigotchi.h" // For mood (can be removed if getMood() is no longer used)
+#include "mood.h"       // Directly include mood.h
 #include "esp_timer.h" // For timing metrics
 #include <WiFi.h> // Include WiFi.h for WiFi.mode() calls
 #include "esp_task_wdt.h" // For watchdog timer management
 #include "wifi_manager.h" // Include the WiFi Manager
-#include "display_variables.h" // For display variables
 
 // Add mutex for task management
 static portMUX_TYPE channel_hopper_mutex = portMUX_INITIALIZER_UNLOCKED;
@@ -46,7 +46,7 @@ esp_err_t start_channel_hopping() {
         
         // If task still exists, force delete
         if (channel_hopping_task_handle != NULL) {
-            Serial.println(Minigotchi::getMood().getBroken() + " SNIFFER_START: Forcing deletion of previous task.");
+            Serial.println(Mood::getInstance().getBroken() + " SNIFFER_START: Forcing deletion of previous task.");
             vTaskDelete(channel_hopping_task_handle);
             channel_hopping_task_handle = NULL;
         }
@@ -57,10 +57,10 @@ esp_err_t start_channel_hopping() {
 
     // Request monitor mode from WifiManager
     if (!WifiManager::getInstance().request_monitor_mode("channel_hopper")) {
-        Serial.println(Minigotchi::getMood().getBroken() + " SNIFFER_START: Failed to acquire monitor mode from WifiManager.");
+        Serial.println(Mood::getInstance().getBroken() + " SNIFFER_START: Failed to acquire monitor mode from WifiManager.");
         return ESP_FAIL; // Indicate failure
     }
-    Serial.println(Minigotchi::getMood().getHappy() + " SNIFFER_START: Monitor mode acquired via WifiManager.");
+    Serial.println(Mood::getInstance().getHappy() + " SNIFFER_START: Monitor mode acquired via WifiManager.");
     
     // Reset state variables
     task_should_exit = false;
@@ -71,7 +71,7 @@ esp_err_t start_channel_hopping() {
     current_hop_interval_ms = MIN_HOP_INTERVAL_MS;
     last_hop_time = esp_timer_get_time() / 1000;
     
-    Serial.println(Minigotchi::getMood().getIntense() + " SNIFFER_START: Creating channel hopping task...");
+    Serial.println(Mood::getInstance().getIntense() + " SNIFFER_START: Creating channel hopping task...");
     
     BaseType_t result = xTaskCreatePinnedToCore(
         channel_hopping_task,    
@@ -84,10 +84,10 @@ esp_err_t start_channel_hopping() {
     );
     
     if (result == pdPASS && channel_hopping_task_handle != NULL) {
-        Serial.println(Minigotchi::getMood().getHappy() + " SNIFFER_START: Channel hopping task created successfully.");
+        Serial.println(Mood::getInstance().getHappy() + " SNIFFER_START: Channel hopping task created successfully.");
         return ESP_OK;
     } else {
-        Serial.println(Minigotchi::getMood().getBroken() + " SNIFFER_START: FAILED to create channel hopping task.");
+        Serial.println(Mood::getInstance().getBroken() + " SNIFFER_START: FAILED to create channel hopping task.");
         return ESP_FAIL;
     }
 }
@@ -95,7 +95,7 @@ esp_err_t start_channel_hopping() {
 // Helper function to stop the channel hopping task
 void stop_channel_hopping() {
     if (channel_hopping_task_handle != NULL) {
-        Serial.println(Minigotchi::getMood().getNeutral() + " SNIFFER_STOP: Signaling channel hopping task to exit...");
+        Serial.println(Mood::getInstance().getNeutral() + " SNIFFER_STOP: Signaling channel hopping task to exit...");
         
         // Signal the task to exit
         task_should_exit = true;
@@ -111,7 +111,7 @@ void stop_channel_hopping() {
         
         // If task still exists, force delete
         if (channel_hopping_task_handle != NULL) {
-            Serial.println(Minigotchi::getMood().getBroken() + " SNIFFER_STOP: Channel hopping task did not exit in time, forcing deletion.");
+            Serial.println(Mood::getInstance().getBroken() + " SNIFFER_STOP: Channel hopping task did not exit in time, forcing deletion.");
             vTaskDelete(channel_hopping_task_handle);
             
             // Critical section to update handle
@@ -119,32 +119,39 @@ void stop_channel_hopping() {
             channel_hopping_task_handle = NULL;
             portEXIT_CRITICAL(&channel_hopper_mutex);
         } else {
-            Serial.println(Minigotchi::getMood().getHappy() + " SNIFFER_STOP: Channel hopping task exited gracefully.");
+            Serial.println(Mood::getInstance().getHappy() + " SNIFFER_STOP: Channel hopping task exited gracefully.");
         }
         
         // Log channel hopping stats
         Serial.printf("%s Channel hopping stats - Successful: %d, Failed: %d, Last interval: %d ms\n",
-                     Minigotchi::getMood().getNeutral().c_str(),
+                     Mood::getInstance().getNeutral().c_str(),
                      successful_hops, failed_hops, current_hop_interval_ms);
     }
     // Release WiFi control via WifiManager
     WifiManager::getInstance().release_wifi_control("channel_hopper");
-    Serial.println(Minigotchi::getMood().getNeutral() + " SNIFFER_STOP: Released WiFi control via WifiManager.");
+    Serial.println(Mood::getInstance().getNeutral() + " SNIFFER_STOP: Released WiFi control via WifiManager.");
 }
 
-// Channel hopping task - improved with adaptive timing and error tracking
-void channel_hopping_task(void *pvParameter) {
+// Task runner function
+void channel_hopping_task(void *pvParameters) {
     // Register with watchdog timer to avoid resets - using a safer approach
     esp_err_t wdt_err = esp_task_wdt_add(NULL);
     if (wdt_err == ESP_OK) {
-        Serial.println(Minigotchi::getMood().getNeutral() + " CHAN_HOP_TASK: Registered with watchdog timer.");
+        Serial.println(Mood::getInstance().getNeutral() + " CHAN_HOP_TASK: Registered with watchdog timer.");
     } else {
         Serial.printf("%s CHAN_HOP_TASK: Failed to register with watchdog timer: %s\n",
-                     Minigotchi::getMood().getBroken().c_str(), 
+                     Mood::getInstance().getBroken().c_str(), 
                      esp_err_to_name(wdt_err));
     }
     
-    Serial.println(Minigotchi::getMood().getHappy() + " CHAN_HOP_TASK: Task started with improved channel hopping logic.");
+    Serial.println(Mood::getInstance().getHappy() + " CHAN_HOP_TASK: Task started with improved channel hopping logic.");
+    
+    // Print heap usage at task start
+    Serial.print("[CHAN_HOP_TASK] Free heap at start: ");
+    Serial.println(ESP.getFreeHeap());
+    UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+    Serial.print("[CHAN_HOP_TASK] Stack high water mark at start: ");
+    Serial.println(stackHighWaterMark);
     
     const int MAX_CONSECUTIVE_FAILURES = 5;
     TickType_t last_recovery_time = 0;
@@ -157,7 +164,7 @@ void channel_hopping_task(void *pvParameter) {
         
         // Check if sniffer is still running
         if (!is_sniffer_running()) {
-            Serial.println(Minigotchi::getMood().getNeutral() + " CHAN_HOP_TASK: Sniffer stopped, task exiting.");
+            Serial.println(Mood::getInstance().getNeutral() + " CHAN_HOP_TASK: Sniffer stopped, task exiting.");
             break;
         }
         
@@ -172,7 +179,7 @@ void channel_hopping_task(void *pvParameter) {
             
             if (channel_hop_paused) {
                 // We're in recovery mode - just wait
-                Serial.println(Minigotchi::getMood().getNeutral() + " CHAN_HOP_TASK: Channel hopping paused for recovery");
+                Serial.println(Mood::getInstance().getNeutral() + " CHAN_HOP_TASK: Channel hopping paused for recovery");
                 channel_hop_paused = false; // Try again next time
                 
                 // Store recovery time for monitoring
@@ -192,15 +199,13 @@ void channel_hopping_task(void *pvParameter) {
                 // Add a short delay to ensure the channel has time to switch
                 // but yield to watchdog by using vTaskDelay instead of delay
                 vTaskDelay(pdMS_TO_TICKS(50));
-                  // Check if channel switch was successful
+                
+                // Check if channel switch was successful
                 int new_channel = Channel::getChannel();
                 if (new_channel != prev_channel) {
                     // Success!
                     successful_hops++;
                     consecutive_failures = 0;
-                    
-                    // Update the global channel variable for display
-                    currentWiFiChannel = new_channel;
                     
                     // Gradually decrease the interval back to minimum if it was increased
                     if (current_hop_interval_ms > MIN_HOP_INTERVAL_MS) {
@@ -221,29 +226,29 @@ void channel_hopping_task(void *pvParameter) {
                     }
                     
                     Serial.printf("%s CHAN_HOP_TASK: Channel switch failed (%d consecutive). Increasing interval to %d ms\n",
-                                 Minigotchi::getMood().getSad().c_str(),
+                                 Mood::getInstance().getSad().c_str(),
                                  consecutive_failures, 
                                  current_hop_interval_ms);
                       
                     // If too many consecutive failures, trigger recovery in smaller steps
                     if (consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
-                        Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: Too many consecutive failures. Requesting WiFi reset via WifiManager.");
+                        Serial.println(Mood::getInstance().getBroken() + " CHAN_HOP_TASK: Too many consecutive failures. Requesting WiFi reset via WifiManager.");
                         channel_hop_paused = true; // Keep this to pause hopping attempts during reset
 
                         if (WifiManager::getInstance().perform_wifi_reset("channel_hopper_recovery")) {
-                            Serial.println(Minigotchi::getMood().getHappy() + " CHAN_HOP_TASK: WiFi reset successful via WifiManager.");
+                            Serial.println(Mood::getInstance().getHappy() + " CHAN_HOP_TASK: WiFi reset successful via WifiManager.");
                             // WifiManager::perform_wifi_reset leaves WiFi OFF. We need monitor mode.
                             if (wdt_err == ESP_OK) esp_task_wdt_reset(); // Pet watchdog before next blocking call
                             vTaskDelay(pdMS_TO_TICKS(50)); // Brief pause
 
                             if (WifiManager::getInstance().request_monitor_mode("channel_hopper_recovery")) {
-                                Serial.println(Minigotchi::getMood().getHappy() + " CHAN_HOP_TASK: Monitor mode re-acquired after reset.");
+                                Serial.println(Mood::getInstance().getHappy() + " CHAN_HOP_TASK: Monitor mode re-acquired after reset.");
                             } else {
-                                Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: FAILED to re-acquire monitor mode after reset. Task may not function.");
+                                Serial.println(Mood::getInstance().getBroken() + " CHAN_HOP_TASK: FAILED to re-acquire monitor mode after reset. Task may not function.");
                                 task_should_exit = true; // Exit the task if monitor mode cannot be re-established.
                             }
                         } else {
-                            Serial.println(Minigotchi::getMood().getBroken() + " CHAN_HOP_TASK: WiFi reset FAILED via WifiManager. Task may not function.");
+                            Serial.println(Mood::getInstance().getBroken() + " CHAN_HOP_TASK: WiFi reset FAILED via WifiManager. Task may not function.");
                             task_should_exit = true; // Exit the task if reset fails.
                         }
                         if (wdt_err == ESP_OK) esp_task_wdt_reset(); // Pet watchdog after WifiManager operations
@@ -257,6 +262,13 @@ void channel_hopping_task(void *pvParameter) {
             }
         }
         
+        // Print heap and stack usage after each hop attempt
+        Serial.print("[CHAN_HOP_TASK] Free heap after hop/check: ");
+        Serial.println(ESP.getFreeHeap());
+        stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+        Serial.print("[CHAN_HOP_TASK] Stack high water mark: ");
+        Serial.println(stackHighWaterMark);
+        
         // Use a shorter delay to keep responsive to task_should_exit
         // This also yields to the watchdog
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -265,7 +277,13 @@ void channel_hopping_task(void *pvParameter) {
     channel_hopping_task_handle = NULL;
     portEXIT_CRITICAL(&channel_hopper_mutex);
     
-    Serial.println(Minigotchi::getMood().getNeutral() + " CHAN_HOP_TASK: Task exiting normally.");
+    Serial.println(Mood::getInstance().getNeutral() + " CHAN_HOP_TASK: Task exiting normally.");
+    // Print final heap and stack usage
+    Serial.print("[CHAN_HOP_TASK] Free heap at task end: ");
+    Serial.println(ESP.getFreeHeap());
+    stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+    Serial.print("[CHAN_HOP_TASK] Stack high water mark at end: ");
+    Serial.println(stackHighWaterMark);
     vTaskDelete(NULL);
 }
 

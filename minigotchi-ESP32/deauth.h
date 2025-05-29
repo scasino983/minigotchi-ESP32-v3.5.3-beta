@@ -23,49 +23,62 @@
 #ifndef DEAUTH_H
 #define DEAUTH_H
 
-#include "config.h"
-#include "minigotchi.h"
-#include "parasite.h"
-#include <Arduino.h>
-#include <WiFi.h>
-#include <algorithm>
-#include <esp_wifi.h>
-#include <sstream>
+// Necessary includes that deauth.cpp will need, formerly in deauth.h
+// config.h, minigotchi.h, parasite.h were removed from here to break cycles.
+// They must be in deauth.cpp.
+
+#include <Arduino.h> // For String, delay etc.
+#include <WiFi.h>    // For WiFi related functions
+#include <esp_wifi.h>  // For esp_wifi_80211_tx etc.
 #include <string>
 #include <vector>
+#include <sstream>   // For std::stringstream in Deauth::add
+#include <algorithm> // For std::find, std::fill, std::copy
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h" // For TaskHandle_t
 
-// forward declaration of mood class
+// Forward declaration
 class Mood;
+// class Config; // Not needed by Deauth class declaration
+// class Minigotchi; // Not needed by Deauth class declaration
+// class Parasite; // Not needed by Deauth class declaration
 
 class Deauth {
 public:
+  // Public static methods
   static void deauth();
   static void list();
   static void add(const std::string &bssids);
-  static void stop(); // New stop method
-  static bool is_running(); // New is_running method
+  static void stop();
+  static bool is_running();
+  static void start(); // Made public for deauth_task_runner
+
+  // Public static members (data related to deauth frames)
   static uint8_t deauthTemp[26];
-  static uint8_t deauthFrame[26];  static uint8_t disassociateFrame[26];
+  static uint8_t deauthFrame[26];
+  static uint8_t disassociateFrame[26];
   static uint8_t broadcastAddr[6];
-  static int randomIndex;
-  static TaskHandle_t deauth_task_handle; // Changed to static member inside class
-  static Mood &mood; // Moved to public for access from task function
-  static void start(); // Moved to public for access from task function
-  static String randomAP; // Moved to public for access from task function
-  static bool deauth_should_stop; // Moved to public for access from task function
-  static std::vector<String> whitelist; // Moved to public for access from task function
+  static int randomIndex; // Index of the selected AP from WiFi scan
+
+  // Public static task handle
+  static TaskHandle_t deauth_task_handle;
 
 private:
+  // Private static helper methods
   static bool send(uint8_t *buf, uint16_t len, bool sys_seq);
   static bool broadcast(uint8_t *mac);
   static void printMac(uint8_t *mac);
   static String printMacStr(uint8_t *mac);
   static bool select();
-  static uint8_t bssid[6];
-  // static bool running; // Ensure this is fully removed
+  // static void start(); // Moved to public
+
+  // Private static members
+  // static Mood &mood; // REMOVED - use Mood::getInstance() directly in .cpp
+  static uint8_t bssid[6]; // Should this be here or in .cpp? If only used in .cpp, move it. For now, keep if it was like this.
+  static bool deauth_should_stop; 
+  static std::vector<String> whitelist;
+  static String randomAP;
 };
 
 #endif // DEAUTH_H

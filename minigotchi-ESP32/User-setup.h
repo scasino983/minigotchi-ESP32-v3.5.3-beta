@@ -1,6 +1,6 @@
-// User_Setup.h for Minigotchi on ESP32-2432S028
+// User_Setup.h for Minigotchi on ESP32
 
-#define USER_SETUP_INFO "Minigotchi_ESP32-2432S028_Setup"
+#define USER_SETUP_INFO "Minigotchi_Setup"
 
 // Driver (ILI9341_2_DRIVER is a good start, or ILI9341_DRIVER)
 #define ILI9341_2_DRIVER

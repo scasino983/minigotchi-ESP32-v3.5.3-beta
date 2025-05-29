@@ -24,7 +24,10 @@
 #define DISPLAY_H
 
 #include "config.h"
-#include "mood.h"
+// #include "mood.h" // Removed to break circular dependency
+
+// Forward declaration
+class Mood;
 
 // words cannot describe how much space this has saved me
 #if disp

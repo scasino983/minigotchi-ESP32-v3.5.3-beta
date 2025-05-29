@@ -21,23 +21,24 @@
  */
 
 #include "frame.h"
-#include "wifi_interface.h"   // For WiFi interface functions
-#include "channel_hopper.h"   // For stop_channel_hopping
-#include "wifi_sniffer.h"     // For is_sniffer_running
 #include "wifi_sniffer.h"
 #include "channel_hopper.h"
 #include "minigotchi.h"
 #include "pwnagotchi.h"
 #include "deauth.h"
+#include "wifi_interface.h" // Added include
+#include "mood.h"           // Added direct include for Mood
+#include "task_manager.h"   // Include TaskManager for task handling
+#include <esp_task_wdt.h>   // Include ESP-IDF task watchdog functions
 
 // Channel hopper helpers
-extern bool is_channel_hopping();
-extern TaskHandle_t get_channel_hopper_task_handle();
+// extern bool is_channel_hopping(); // REMOVED
+// extern TaskHandle_t get_channel_hopper_task_handle(); // REMOVED
 // Pwnagotchi scan
-extern void pwnagotchi_scan_stop();
+// extern void pwnagotchi_scan_stop(); // REMOVED
 // Deauth helpers
-extern bool is_deauth_running();
-extern void deauth_stop();
+// extern bool is_deauth_running(); // REMOVED
+// extern void deauth_stop(); // REMOVED
 
 // Forward declaration for robust WiFi/FreeRTOS cleanup helper
 static void stop_all_wifi_tasks_and_cleanup();
@@ -74,11 +75,6 @@ const uint8_t Frame::IDWhisperStreamHeader = 0xE2;
 const uint8_t Frame::SignatureAddr[] = {0xde, 0xad, 0xbe, 0xef, 0xde, 0xad};
 const uint8_t Frame::BroadcastAddr[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 const uint16_t Frame::wpaFlags = 0x0411;
-
-/**
- * Gets first instance of mood class
- */
-Mood &Frame::mood = Mood::getInstance();
 
 // Don't even dare restyle!
 const uint8_t Frame::header[]{
@@ -332,14 +328,14 @@ bool Frame::send() {
   
   // If WiFi is not initialized, initialize it with better error handling
   if (check_err == ESP_ERR_WIFI_NOT_INIT) {
-    Serial.println(mood.getIntense() + " WiFi not initialized, initializing now...");
+    Serial.println(Mood::getInstance().getIntense() + " WiFi not initialized, initializing now...");
     
     // Initialize WiFi with default configuration
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t init_err = esp_wifi_init(&cfg);
     if (init_err != ESP_OK) {
       Serial.printf("%s Failed to initialize WiFi: %s\n", 
-                    mood.getBroken().c_str(), esp_err_to_name(init_err));
+                    Mood::getInstance().getBroken().c_str(), esp_err_to_name(init_err));
       return false;
     }
     
@@ -347,7 +343,7 @@ bool Frame::send() {
     esp_err_t start_err = esp_wifi_start();
     if (start_err != ESP_OK) {
       Serial.printf("%s Failed to start WiFi: %s\n", 
-                    mood.getBroken().c_str(), esp_err_to_name(start_err));
+                    Mood::getInstance().getBroken().c_str(), esp_err_to_name(start_err));
       return false;
     }
     
@@ -355,7 +351,7 @@ bool Frame::send() {
     esp_err_t mode_err = esp_wifi_set_mode(WIFI_MODE_STA);
     if (mode_err != ESP_OK) {
       Serial.printf("%s Failed to set initial WiFi mode: %s\n", 
-                    mood.getBroken().c_str(), esp_err_to_name(mode_err));
+                    Mood::getInstance().getBroken().c_str(), esp_err_to_name(mode_err));
       return false;
     }
     
@@ -365,13 +361,13 @@ bool Frame::send() {
     check_err = esp_wifi_get_mode(&currentMode);
     if (check_err != ESP_OK) {
       Serial.printf("%s Failed to get WiFi mode after init: %s\n", 
-                    mood.getBroken().c_str(), esp_err_to_name(check_err));
+                    Mood::getInstance().getBroken().c_str(), esp_err_to_name(check_err));
       return false;
     }
   } else if (check_err != ESP_OK) {
     // Some other error occurred checking the WiFi mode
     Serial.printf("%s Error checking WiFi mode: %s\n", 
-                  mood.getBroken().c_str(), esp_err_to_name(check_err));
+                  Mood::getInstance().getBroken().c_str(), esp_err_to_name(check_err));
     return false;
   }
   
@@ -382,7 +378,7 @@ bool Frame::send() {
   esp_err_t promisc_err = esp_wifi_get_promiscuous(&wasPromiscuous);
   if (promisc_err != ESP_OK) {
     Serial.printf("%s Error checking promiscuous mode: %s\n", 
-                  mood.getSad().c_str(), esp_err_to_name(promisc_err));
+                  Mood::getInstance().getSad().c_str(), esp_err_to_name(promisc_err));
     // Continue anyway, assuming not promiscuous
     wasPromiscuous = false;
   }
@@ -393,7 +389,7 @@ bool Frame::send() {
     esp_err_t promisc_off_err = esp_wifi_set_promiscuous(false);
     if (promisc_off_err != ESP_OK) {
       Serial.printf("%s Error disabling promiscuous mode: %s\n", 
-                    mood.getSad().c_str(), esp_err_to_name(promisc_off_err));
+                    Mood::getInstance().getSad().c_str(), esp_err_to_name(promisc_off_err));
       // Continue anyway
     }
     delay(100);  // Give WiFi state time to settle
@@ -415,7 +411,7 @@ bool Frame::send() {
   
   if (mode_check_err != ESP_OK) {
     Serial.printf("%s WiFi not in good state before AP mode: %s\n", 
-                mood.getBroken().c_str(), esp_err_to_name(mode_check_err));
+                Mood::getInstance().getBroken().c_str(), esp_err_to_name(mode_check_err));
     // Full cleanup and reinitialization
     esp_wifi_stop();
     delay(100);
@@ -423,20 +419,20 @@ bool Frame::send() {
     delay(200);
     // Reinitialize WiFi with default config
     if (!ensure_wifi_initialized()) {
-      Serial.printf("%s Failed to reinitialize WiFi\n", mood.getBroken().c_str());
+      Serial.printf("%s Failed to reinitialize WiFi\n", Mood::getInstance().getBroken().c_str());
       return false;
     }
     delay(150);
   }
 
   // Set to STA mode first as a transitional state with longer delay
-  Serial.println(mood.getIntense() + " Setting WiFi to STA mode as transition...");
+  Serial.println(Mood::getInstance().getIntense() + " Setting WiFi to STA mode as transition...");
   if (!reset_and_set_wifi_mode(WIFI_MODE_STA)) {
     Serial.println("[Frame::send] Failed to robustly reset and set WiFi to STA mode!");
     return false;
   }
   // Set to AP mode for frame transmission with retry mechanism
-  Serial.println(mood.getIntense() + " Setting WiFi to AP mode for transmission...");
+  Serial.println(Mood::getInstance().getIntense() + " Setting WiFi to AP mode for transmission...");
   bool ap_mode_ok = false;
   for (int retry = 0; retry < 3; retry++) {
     if (!reset_and_set_wifi_mode(WIFI_MODE_AP)) {
@@ -476,7 +472,7 @@ bool Frame::send() {
   // Only try to send if we have valid memory and frame creation succeeded (already checked)
   // Check heap before sending
   if (ESP.getFreeHeap() < 10000) { // This check seems redundant now with heap checks in pack and before tx, but keeping as a safeguard.
-    Serial.println(mood.getBroken() + " Low memory before sending, aborting");
+    Serial.println(Mood::getInstance().getBroken() + " Low memory before sending, aborting");
     if (frame != nullptr) {
       delete[] frame;
       frame = nullptr;
@@ -550,19 +546,19 @@ void Frame::advertise() {
   int packets = 0;
   unsigned long startTime = millis();
   if (!Config::advertise) {
-    Serial.println(mood.getNeutral() + " Advertisement disabled in config.");
+    Serial.println(Mood::getInstance().getNeutral() + " Advertisement disabled in config.");
     Serial.printf("Frame::advertise() - Exit (disabled). Free heap: %d\n", ESP.getFreeHeap());
     return;  // Skip advertisement if disabled
   }
   // Stop the sniffer temporarily if it's running
   bool sniffer_was_running = is_sniffer_running();
   if (sniffer_was_running) {
-    Serial.println(mood.getNeutral() + " Stopping sniffer before advertisement...");
+    Serial.println(Mood::getInstance().getNeutral() + " Stopping sniffer before advertisement...");
     esp_err_t stop_err = wifi_sniffer_stop();
     if (stop_err != ESP_OK) {
       Serial.printf("%s Failed to stop sniffer properly: %s\n", 
-                   mood.getBroken().c_str(), esp_err_to_name(stop_err));
-      Serial.println(mood.getIntense() + " Performing more thorough WiFi cleanup...");
+                   Mood::getInstance().getBroken().c_str(), esp_err_to_name(stop_err));
+      Serial.println(Mood::getInstance().getIntense() + " Performing more thorough WiFi cleanup...");
       esp_wifi_set_promiscuous_rx_cb(NULL);
       esp_wifi_set_promiscuous(false);
     }
@@ -572,27 +568,27 @@ void Frame::advertise() {
   bool is_promiscuous = false;
   esp_wifi_get_promiscuous(&is_promiscuous);
   if (is_promiscuous) {
-    Serial.println(mood.getIntense() + " Still in promiscuous mode, disabling...");
+    Serial.println(Mood::getInstance().getIntense() + " Still in promiscuous mode, disabling...");
     esp_wifi_set_promiscuous_rx_cb(NULL);
     esp_wifi_set_promiscuous(false);
     delay(100);
   }
-  Serial.println(mood.getIntense() + " Starting advertisement...");
-  Display::updateDisplay(mood.getIntense(), "Starting advertisement...");
+  Serial.println(Mood::getInstance().getIntense() + " Starting advertisement...");
+  Display::updateDisplay(Mood::getInstance().getIntense(), "Starting advertisement...");
   Parasite::sendAdvertising();
   delay(Config::shortDelay);
   int availableHeap = ESP.getFreeHeap();
   int maxPackets = min(15, availableHeap / 10240);
   maxPackets = max(3, maxPackets);
   Serial.printf("%s Available heap: %d bytes, sending max %d packets\n", 
-               mood.getNeutral().c_str(), availableHeap, maxPackets);
+               Mood::getInstance().getNeutral().c_str(), availableHeap, maxPackets);
   Serial.printf("Frame::advertise() - Starting packet send loop. Max packets: %d. Free heap: %d\n", maxPackets, ESP.getFreeHeap());
   WiFi.disconnect(true);
   delay(100);
   // Ensure WiFi is initialized before any mode/config changes
   if (!ensure_wifi_initialized()) {
     Serial.println("[Frame::advertise] Failed to ensure WiFi initialized before advertisement!");
-    Display::updateDisplay(mood.getBroken(), "WiFi init failed!");
+    Display::updateDisplay(Mood::getInstance().getBroken(), "WiFi init failed!");
     return;
   }
   // First, check if WiFi is in an initialized state
@@ -604,39 +600,39 @@ void Frame::advertise() {
   
   if (check_err == ESP_OK) {
     // WiFi is initialized, check if we're in a clean state
-    Serial.println(mood.getIntense() + " WiFi is initialized in mode: " + String(current_mode));
+    Serial.println(Mood::getInstance().getIntense() + " WiFi is initialized in mode: " + String(current_mode));
     
     // If we're not in STA mode, or there's a sniffer running, we need a reset
     if (current_mode != WIFI_MODE_STA || sniffer_was_running) {
       need_full_reset = true;
     } else {
       // WiFi is in STA mode and no sniffer, we can just use it directly
-      Serial.println(mood.getNeutral() + " WiFi already in clean STA mode, proceeding with advertisement...");
+      Serial.println(Mood::getInstance().getNeutral() + " WiFi already in clean STA mode, proceeding with advertisement...");
       need_full_reset = false;
     }
   } else if (check_err == ESP_ERR_WIFI_NOT_INIT) {
     // WiFi is not initialized, so we need to initialize it
-    Serial.println(mood.getIntense() + " WiFi is not initialized, will initialize for advertisement.");
+    Serial.println(Mood::getInstance().getIntense() + " WiFi is not initialized, will initialize for advertisement.");
     need_full_reset = true;
   } else {
     // Some other error, assume we need a reset
     Serial.printf("%s Unexpected WiFi state: %s. Forcing reset.\n", 
-                mood.getBroken().c_str(), esp_err_to_name(check_err));
+                Mood::getInstance().getBroken().c_str(), esp_err_to_name(check_err));
     need_full_reset = true;
   }
   
   // If we need a full reset, do it thoroughly but only once
   if (need_full_reset) {
-    Serial.println(mood.getIntense() + " Performing WiFi reset for advertisement...");
+    Serial.println(Mood::getInstance().getIntense() + " Performing WiFi reset for advertisement...");
     if (!reset_and_set_wifi_mode(WIFI_MODE_STA)) {
       Serial.println("[Frame::advertise] Failed to robustly reset and set WiFi to STA mode!");
-      Display::updateDisplay(mood.getBroken(), "WiFi mode set failed!");
+      Display::updateDisplay(Mood::getInstance().getBroken(), "WiFi mode set failed!");
       return;
     }
     delay(150);
     if (!reset_and_set_wifi_mode(WIFI_MODE_AP)) {
       Serial.println("[Frame::advertise] Failed to robustly reset and set WiFi to AP mode!");
-      Display::updateDisplay(mood.getBroken(), "WiFi mode set failed!");
+      Display::updateDisplay(Mood::getInstance().getBroken(), "WiFi mode set failed!");
       return;
     }
     delay(150);
@@ -645,7 +641,7 @@ void Frame::advertise() {
   for (packets = 0; packets < maxPackets; packets++) {
     Serial.printf("Frame::advertise() - Sending packet %d/%d\n", packets+1, maxPackets);
     if (!Frame::send()) {
-      Serial.printf("%s Frame::send() failed during advertisement!\n", mood.getBroken().c_str());
+      Serial.printf("%s Frame::send() failed during advertisement!\n", Mood::getInstance().getBroken().c_str());
       break;
     }
     delay(Config::shortDelay);
@@ -653,18 +649,18 @@ void Frame::advertise() {
   unsigned long endTime = millis();
   Serial.printf("Frame::advertise() - Sent %d packets in %lu ms. Free heap: %d\n", 
                packets, endTime - startTime, ESP.getFreeHeap());
-  Serial.println(mood.getIntense() + " Advertisement complete.");
-  Display::updateDisplay(mood.getIntense(), "Advertisement done!");
+  Serial.println(Mood::getInstance().getIntense() + " Advertisement complete.");
+  Display::updateDisplay(Mood::getInstance().getIntense(), "Advertisement done!");
   delay(500);
   if (sniffer_was_running) {
     delay(300);
-    Serial.println(mood.getIntense() + " Setting WiFi to STA mode before restarting sniffer...");
+    Serial.println(Mood::getInstance().getIntense() + " Setting WiFi to STA mode before restarting sniffer...");
     bool sta_ok = false;
     for (int retry = 0; retry < 3; retry++) {
       if (!reset_and_set_wifi_mode(WIFI_MODE_STA)) {
         Serial.printf("[Frame::advertise] Failed to robustly reset and set WiFi to STA mode (attempt %d)!\n", retry+1);
         if (retry == 2) {
-          Display::updateDisplay(mood.getBroken(), "WiFi mode set failed!");
+          Display::updateDisplay(Mood::getInstance().getBroken(), "WiFi mode set failed!");
           return;
         }
         delay(200 * (retry + 1));
@@ -675,10 +671,40 @@ void Frame::advertise() {
     }
     if (!sta_ok) return;
     delay(200);
-    Serial.println(mood.getIntense() + " Restarting sniffer...");
+    Serial.println(Mood::getInstance().getIntense() + " Restarting sniffer...");
     wifi_sniffer_start();
   }
   Serial.printf("Frame::advertise() - Exit. Free heap: %d\n", ESP.getFreeHeap());
+}
+
+// Example: Frame sending task using TaskManager and robust pattern
+void frame_sending_task(void *pvParameters) {
+    esp_err_t wdt_err = esp_task_wdt_add(NULL);
+    uint32_t min_interval = 500; // ms
+    uint32_t max_interval = 2000; // ms
+    uint32_t interval = min_interval;
+    int failures = 0;
+    const int max_failures = 5;
+    while (!taskShouldExit("frame_sending_task")) {
+        // ... frame sending logic ...
+        bool success = true; // Replace with actual send result
+        if (success) {
+            failures = 0;
+            if (interval > min_interval) interval -= 100;
+        } else {
+            failures++;
+            if (interval < max_interval) interval += 100;
+            if (failures >= max_failures) {
+                // Recovery logic, e.g., WiFi reset
+                failures = 0;
+            }
+        }
+        if (wdt_err == ESP_OK) esp_task_wdt_reset();
+        vTaskDelay(pdMS_TO_TICKS(interval));
+    }
+    // Cleanup
+    // ... free resources, release WiFi, etc. ...
+    vTaskDelete(NULL);
 }
 
 // Robust global WiFi/FreeRTOS cleanup helper
@@ -691,16 +717,16 @@ static void stop_all_wifi_tasks_and_cleanup() {
         delay(100);
     }
     // Stop channel hopper if running
-    if (is_channel_hopping()) {
+    if (is_channel_hopping_active()) { // Updated to use function from wifi_interface.h
         Serial.println("[WiFi Cleanup] Stopping channel hopper...");
-        stop_channel_hopping();
+        stop_channel_hopping(); // This function should be available from channel_hopper.h (or needs to be added to wifi_interface.h if not)
         // Wait for channel hopper task to be NULL (with timeout)
         int wait_ms = 0;
-        while (get_channel_hopper_task_handle() != NULL && wait_ms < 1000) {
+        while (get_channel_hopping_task_handle() != NULL && wait_ms < 1000) {
             delay(50);
             wait_ms += 50;
         }
-        if (get_channel_hopper_task_handle() == NULL) {
+        if (get_channel_hopping_task_handle() == NULL) {
             Serial.println("[WiFi Cleanup] Channel hopper stopped.");
         } else {
             Serial.println("[WiFi Cleanup] Channel hopper did not stop in time!");
@@ -711,12 +737,12 @@ static void stop_all_wifi_tasks_and_cleanup() {
     esp_wifi_set_promiscuous(false);
     delay(50);
     // Stop pwnagotchi scan callbacks if any
-    pwnagotchi_scan_stop();
+    stop_pwnagotchi_scan(); // Updated to use function from wifi_interface.h
     delay(30);
     // Forcibly stop deauth if running
-    if (is_deauth_running()) {
+    if (is_deauth_attack_running()) { // Updated to use function from wifi_interface.h
         Serial.println("[WiFi Cleanup] Stopping deauth...");
-        deauth_stop();
+        stop_deauth_attack(); // Updated to use function from wifi_interface.h
         delay(50);
     }
     // Disconnect WiFi

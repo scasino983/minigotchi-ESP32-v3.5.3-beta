@@ -103,7 +103,7 @@ Mood &Mood::getInstance() {
   if (instance == nullptr) {
     // Create a default instance with placeholder faces
     instance = new Mood("^.^", "v.v", "x.x", "o.o", ">.>", "<.<", "-.-", "z.z");
-    Serial.println("WARNING: Mood instance was null! Created default instance.");
+    Serial.println("WARNING: Mood instance was null! Created default instance with fallback faces.");
   }
   return *instance;
 }

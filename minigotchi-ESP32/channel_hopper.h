@@ -3,6 +3,8 @@
 
 #include "esp_err.h"
 #include <stdint.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 // Access task handle to check if task is running
 extern TaskHandle_t channel_hopping_task_handle;

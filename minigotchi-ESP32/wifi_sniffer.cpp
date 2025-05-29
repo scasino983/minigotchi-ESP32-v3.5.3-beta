@@ -1,16 +1,18 @@
 #include "wifi_sniffer.h"
-#include "pcap_logger.h"  // To write packets
-#include "minigotchi.h"   // For Minigotchi::getMood() and Minigotchi::monStart/Stop
-#include "esp_wifi.h"     // For esp_wifi_set_promiscuous_rx_cb, etc.
-#include "esp_event.h"    // For esp_event_handler_register (if needed for other events)
-#include "esp_log.h"      // For ESP_LOGx macros
-#include <arpa/inet.h>    // For ntohs(), ntohl()
-#include "channel_hopper.h" // For channel hopping control
-#include "wifi_frames.h"   // For frame parsing
-#include "handshake_logger.h" // For handshake CSV logging
-#include <WiFi.h> // Include WiFi.h for WiFi.mode() calls
+#include "pcap_logger.h"
+// #include "minigotchi.h"   // Replaced by direct Mood access and WifiManager
+#include "mood.h"         // For Mood::getInstance()
+#include "wifi_manager.h" // For WifiManager
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_log.h"
+#include <arpa/inet.h> 
+#include "channel_hopper.h"
+#include "wifi_frames.h"
+#include "handshake_logger.h"
+// #include <WiFi.h> // WiFi.h is often included by Arduino.h or esp_wifi.h indirectly. Kept commented as per instruction.
 
-static bool sniffer_is_active = false;
+static bool sniffer_is_active = false; // Ensured
 static const char *TAG_SNIFFER = "WIFI_SNIFFER"; // For ESP_LOG
 
 // Make the callback function visible in our file scope but not static
@@ -150,377 +152,113 @@ void wifi_promiscuous_rx_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
 
 esp_err_t wifi_sniffer_start(void) {
     if (sniffer_is_active) {
-        Serial.println(Minigotchi::getMood().getNeutral() + " WiFi sniffer already active.");
+        Serial.println(Mood::getInstance().getNeutral() + " WiFi sniffer already active.");
         return ESP_OK;
     }
 
-    // Verify WiFi state before starting sniffer
-    wifi_mode_t current_mode;
-    esp_err_t mode_err = esp_wifi_get_mode(&current_mode);
-    
-    if (mode_err != ESP_OK) {
-        Serial.printf("%s Cannot start sniffer - WiFi not in good state: %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(mode_err));
-        
-        // If WiFi is not initialized, initialize it
-        if (mode_err == ESP_ERR_WIFI_NOT_INIT) {
-            Serial.println(Minigotchi::getMood().getIntense() + " WiFi not initialized, initializing now...");
-            
-            // Initialize with default configuration
-            wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-            esp_err_t init_err = esp_wifi_init(&cfg);
-            
-            if (init_err != ESP_OK) {
-                Serial.printf("%s Failed to initialize WiFi: %s\n", 
-                             Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(init_err));
-                return ESP_FAIL;
-            }
-            
-            // Start WiFi with retry
-            for (int retry = 0; retry < 3; retry++) {
-                esp_err_t start_err = esp_wifi_start();
-                if (start_err == ESP_OK) {
-                    break;
-                }
-                
-                if (retry == 2) {
-                    Serial.printf("%s Failed to start WiFi after multiple attempts: %s\n", 
-                                 Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(start_err));
-                    esp_wifi_deinit();
-                    return ESP_FAIL;
-                }
-                
-                delay(100 * (retry + 1));
-            }
-        } else {
-            // Some other error, try to recover
-            Serial.println(Minigotchi::getMood().getIntense() + " Attempting WiFi recovery...");
-            
-            // Try to stop WiFi if it might be started
-            esp_wifi_stop();
-            delay(100);
-            
-            // Try to deinitialize WiFi if it might be initialized
-            esp_wifi_deinit();
-            delay(150);
-            
-            // Initialize with default configuration
-            wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-            esp_err_t init_err = esp_wifi_init(&cfg);
-            
-            if (init_err != ESP_OK) {
-                Serial.printf("%s Failed to reinitialize WiFi: %s\n", 
-                             Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(init_err));
-                return ESP_FAIL;
-            }
-            
-            // Start WiFi
-            esp_err_t start_err = esp_wifi_start();
-            if (start_err != ESP_OK) {
-                Serial.printf("%s Failed to restart WiFi: %s\n", 
-                             Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(start_err));
-                esp_wifi_deinit();
-                return ESP_FAIL;
-            }
-        }
-        
-        // Set to STA mode explicitly for sniffer
-        esp_err_t sta_err = esp_wifi_set_mode(WIFI_MODE_STA);
-        if (sta_err != ESP_OK) {
-            Serial.printf("%s Failed to set WiFi to STA mode: %s\n", 
-                         Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(sta_err));
-            esp_wifi_stop();
-            esp_wifi_deinit();
-            return ESP_FAIL;
-        }
-        
-        delay(150);
-    } else if (current_mode != WIFI_MODE_STA) {
-        // WiFi is initialized but not in STA mode, which is required for sniffer
-        Serial.printf("%s WiFi in incorrect mode for sniffer (%d), setting to STA mode...\n", 
-                     Minigotchi::getMood().getIntense().c_str(), current_mode);
-        
-        esp_err_t sta_err = esp_wifi_set_mode(WIFI_MODE_STA);
-        if (sta_err != ESP_OK) {
-            Serial.printf("%s Failed to set WiFi to STA mode: %s\n", 
-                         Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(sta_err));
-            return ESP_FAIL;
-        }
-        
-        delay(150);
-    }
-
-    // Initialize PCAP logger
-    Serial.println(Minigotchi::getMood().getIntense() + " Attempting to open PCAP file for sniffer...");
-    if (pcap_logger_open_new_file() != ESP_OK) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Sniffer: Failed to open PCAP file.");
+    Serial.println(Mood::getInstance().getIntense() + " wifi_sniffer_start: Requesting monitor mode...");
+    if (!WifiManager::getInstance().request_monitor_mode("sniffer_start")) {
+        Serial.println(Mood::getInstance().getBroken() + " wifi_sniffer_start: Failed to acquire monitor mode via WifiManager.");
         return ESP_FAIL;
     }
-    Serial.println(Minigotchi::getMood().getHappy() + " Sniffer: New PCAP file opened.");
-    
-    // Initialize handshake CSV logger
-    Serial.println(Minigotchi::getMood().getIntense() + " Initializing handshake CSV logger...");
-    if (handshake_logger_init() != ESP_OK) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to initialize handshake logger.");
+    Serial.println(Mood::getInstance().getHappy() + " wifi_sniffer_start: Monitor mode acquired via WifiManager.");
+
+    Serial.println(Mood::getInstance().getIntense() + " Attempting to open PCAP file for sniffer...");
+    if (pcap_logger_open_new_file() != ESP_OK) {
+        Serial.println(Mood::getInstance().getBroken() + " Sniffer: Failed to open PCAP file.");
+        WifiManager::getInstance().release_wifi_control("sniffer_start_fail_pcap"); // Release monitor mode
+        return ESP_FAIL;
+    }
+    Serial.println(Mood::getInstance().getHappy() + " Sniffer: New PCAP file opened.");
+
+    Serial.println(Mood::getInstance().getIntense() + " Initializing handshake CSV logger...");
+    if (handshake_logger_init() != ESP_OK) { // Should this be called every time? Or just once globally? Assuming it's okay here.
+        Serial.println(Mood::getInstance().getBroken() + " Failed to initialize handshake logger.");
         pcap_logger_close_file();
+        WifiManager::getInstance().release_wifi_control("sniffer_start_fail_hs_init");
         return ESP_FAIL;
     }
     if (handshake_logger_open_new_file() != ESP_OK) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to open handshake CSV file.");
+        Serial.println(Mood::getInstance().getBroken() + " Failed to open handshake CSV file.");
         pcap_logger_close_file();
+        WifiManager::getInstance().release_wifi_control("sniffer_start_fail_hs_open");
         return ESP_FAIL;
     }
-    Serial.println(Minigotchi::getMood().getHappy() + " Handshake CSV logger initialized and file opened.");
+    Serial.println(Mood::getInstance().getHappy() + " Handshake CSV logger initialized and file opened.");
 
-    // Start monitor mode with retry
-    bool monitor_started = false;
-    for (int retry = 0; retry < 3; retry++) {
-        if (Minigotchi::monStart()) {
-            monitor_started = true;
-            break;
-        }
-        
-        Serial.printf("%s Failed to start monitor mode (attempt %d)\n", 
-                     Minigotchi::getMood().getBroken().c_str(), retry+1);
-        
-        if (retry < 2) {
-            delay(150 * (retry + 1));
-        }
-    }
-    
-    if (!monitor_started) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to start monitor mode after multiple attempts.");
-        pcap_logger_close_file();
-        handshake_logger_close_file();
-        return ESP_FAIL;
-    }
-
-    // Set promiscuous filter with retry
     wifi_promiscuous_filter_t filter = {
-        .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA 
+        .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA
     };
-    
-    esp_err_t filter_err = ESP_FAIL;
-    for (int retry = 0; retry < 3; retry++) {
-        filter_err = esp_wifi_set_promiscuous_filter(&filter);
-        if (filter_err == ESP_OK) {
-            break;
-        }
-        
-        Serial.printf("%s Failed to set promiscuous filter (attempt %d): %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), retry+1, esp_err_to_name(filter_err));
-        
-        if (retry < 2) {
-            delay(100 * (retry + 1));
-        }
-    }
-    
+    esp_err_t filter_err = esp_wifi_set_promiscuous_filter(&filter);
     if (filter_err != ESP_OK) {
-        Serial.printf("%s Failed to set promiscuous filter after multiple attempts: %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(filter_err));
-        Minigotchi::monStop(); 
+        Serial.printf("%s Failed to set promiscuous filter: %s\n", // Corrected newline
+                     Mood::getInstance().getBroken().c_str(), esp_err_to_name(filter_err));
         pcap_logger_close_file();
         handshake_logger_close_file();
+        WifiManager::getInstance().release_wifi_control("sniffer_start_fail_filter");
         return filter_err;
     }
-    
-    Serial.println(Minigotchi::getMood().getNeutral() + " Promiscuous filter set for MGMT and DATA frames.");
+    Serial.println(Mood::getInstance().getNeutral() + " Promiscuous filter set for MGMT and DATA frames.");
 
-    // Set promiscuous callback with retry
-    esp_err_t cb_err = ESP_FAIL;
-    for (int retry = 0; retry < 3; retry++) {
-        cb_err = esp_wifi_set_promiscuous_rx_cb(wifi_promiscuous_rx_callback);
-        if (cb_err == ESP_OK) {
-            break;
-        }
-        
-        Serial.printf("%s Failed to set promiscuous RX callback (attempt %d): %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), retry+1, esp_err_to_name(cb_err));
-        
-        if (retry < 2) {
-            delay(100 * (retry + 1));
-        }
-    }
-    
+    esp_err_t cb_err = esp_wifi_set_promiscuous_rx_cb(wifi_promiscuous_rx_callback);
     if (cb_err != ESP_OK) {
-        Serial.printf("%s Failed to set promiscuous RX callback after multiple attempts: %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(cb_err));
-        Minigotchi::monStop(); 
-        esp_wifi_set_promiscuous_filter(NULL);
+        Serial.printf("%s Failed to set promiscuous RX callback: %s\n", // Corrected newline
+                     Mood::getInstance().getBroken().c_str(), esp_err_to_name(cb_err));
+        esp_wifi_set_promiscuous_filter(NULL); // Clear filter
         pcap_logger_close_file();
         handshake_logger_close_file();
+        WifiManager::getInstance().release_wifi_control("sniffer_start_fail_cb");
         return cb_err;
     }
-    
-    // Verify we're actually in promiscuous mode
-    bool is_promiscuous = false;
-    esp_wifi_get_promiscuous(&is_promiscuous);
-    if (!is_promiscuous) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to enter promiscuous mode despite successful calls.");
-        esp_wifi_set_promiscuous_rx_cb(NULL);
-        Minigotchi::monStop();
-        pcap_logger_close_file();
-        handshake_logger_close_file();
-        return ESP_FAIL;
-    }
-    
+
     sniffer_is_active = true;
-    Serial.println(Minigotchi::getMood().getHappy() + " WiFi Sniffer started successfully.");
+    Serial.println(Mood::getInstance().getHappy() + " WiFi Sniffer started successfully.");
     ESP_LOGI(TAG_SNIFFER, "WiFi Sniffer started successfully.");
 
-    // Start channel hopping task separately
-    start_channel_hopping();
-
+    start_channel_hopping(); // Start channel hopping task
     return ESP_OK;
 }
 
 esp_err_t wifi_sniffer_stop(void) {
     if (!sniffer_is_active) {
-        Serial.println(Minigotchi::getMood().getNeutral() + " WiFi sniffer not active.");
+        Serial.println(Mood::getInstance().getNeutral() + " WiFi sniffer not active.");
         return ESP_OK;
     }
 
-    // Mark sniffer as inactive first to prevent callback processing
-    sniffer_is_active = false;
-    Serial.println(Minigotchi::getMood().getHappy() + " WiFi Sniffer stopped.");
-    ESP_LOGI(TAG_SNIFFER, "WiFi Sniffer stopped.");
+    Serial.println(Mood::getInstance().getNeutral() + " Stopping WiFi sniffer...");
+    sniffer_is_active = false; // Mark inactive first
 
-    // Stop the channel hopping task first
-    stop_channel_hopping();
+    stop_channel_hopping(); // Stop channel hopping task
 
-    // Disable callbacks before doing anything else
     esp_err_t cb_err = esp_wifi_set_promiscuous_rx_cb(NULL);
-    if (cb_err != ESP_OK && cb_err != ESP_ERR_WIFI_NOT_STARTED && cb_err != ESP_ERR_WIFI_NOT_INIT) {
-        Serial.printf("%s Error clearing promiscuous callback: %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(cb_err));
+    if (cb_err != ESP_OK && cb_err != ESP_ERR_WIFI_NOT_INIT) { // Allow ESP_ERR_WIFI_NOT_INIT if WiFi was reset
+        Serial.printf("%s Error clearing promiscuous callback: %s\n", // Corrected newline
+                     Mood::getInstance().getBroken().c_str(), esp_err_to_name(cb_err));
     }
-    
-    // Disable promiscuous mode with retries
-    bool promisc_disabled = false;
-    for (int retry = 0; retry < 3; retry++) {
-        esp_err_t promisc_err = esp_wifi_set_promiscuous(false);
-        if (promisc_err == ESP_OK || promisc_err == ESP_ERR_WIFI_NOT_STARTED || promisc_err == ESP_ERR_WIFI_NOT_INIT) {
-            promisc_disabled = true;
-            break;
-        }
-        
-        Serial.printf("%s Failed to disable promiscuous mode (attempt %d): %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), retry+1, esp_err_to_name(promisc_err));
-        delay(100 * (retry + 1));
-    }
-    
-    if (!promisc_disabled) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to disable promiscuous mode after multiple attempts.");
-        // Continue with cleanup anyway
-    }
-    
-    // Clear promiscuous filter
+
     esp_err_t filter_err = esp_wifi_set_promiscuous_filter(NULL);
-    if (filter_err != ESP_OK && filter_err != ESP_ERR_WIFI_NOT_STARTED && filter_err != ESP_ERR_WIFI_NOT_INIT) {
-        Serial.printf("%s Error clearing promiscuous filter: %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(filter_err));
+    if (filter_err != ESP_OK && filter_err != ESP_ERR_WIFI_NOT_INIT) {
+        Serial.printf("%s Error clearing promiscuous filter: %s\n", // Corrected newline
+                     Mood::getInstance().getBroken().c_str(), esp_err_to_name(filter_err));
     }
     
-    // Close files
+    // Attempt to disable promiscuous mode itself, though WifiManager will handle mode transition
+    esp_wifi_set_promiscuous(false); 
+
     pcap_logger_close_file();
     handshake_logger_close_file();
-    
-    // Get current WiFi state
-    wifi_mode_t mode;
-    esp_err_t mode_err = esp_wifi_get_mode(&mode);
-    
-    // Check if WiFi is initialized and in a valid state
-    bool wifi_initialized = (mode_err == ESP_OK);
-    bool need_reset = false;
-    
-    if (!wifi_initialized) {
-        if (mode_err == ESP_ERR_WIFI_NOT_INIT) {
-            Serial.println(Minigotchi::getMood().getIntense() + " WiFi not initialized, will reinitialize...");
-            need_reset = true;
-        } else {
-            Serial.printf("%s WiFi in unknown state: %s, performing reset...\n", 
-                         Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(mode_err));
-            need_reset = true;
-        }
-    } else if (mode != WIFI_MODE_STA) {
-        Serial.printf("%s WiFi in incorrect mode: %d, resetting to STA mode...\n", 
-                     Minigotchi::getMood().getBroken().c_str(), mode);
-        need_reset = true;
+
+    Serial.println(Mood::getInstance().getNeutral() + " wifi_sniffer_stop: Releasing monitor mode...");
+    if (!WifiManager::getInstance().release_wifi_control("sniffer_stop")) {
+         Serial.println(Mood::getInstance().getBroken() + " wifi_sniffer_stop: Failed to release monitor mode via WifiManager, or was not controller.");
+         // If release failed, it might be because another component took control, or an error occurred.
+         // WifiManager's release_wifi_control sets mode to OFF if it was the controller.
+         // If not controller, current mode is preserved by WifiManager.
+    } else {
+         Serial.println(Mood::getInstance().getHappy() + " wifi_sniffer_stop: Monitor mode released via WifiManager. WiFi should be OFF or in previous state if not controlled by sniffer.");
     }
     
-    // If WiFi needs to be reset, do it thoroughly
-    if (need_reset) {
-        // Try to stop WiFi if it might be started
-        if (mode_err != ESP_ERR_WIFI_NOT_INIT) {
-            esp_wifi_stop();
-            delay(100);
-        }
-        
-        // Try to deinitialize WiFi if it might be initialized
-        if (mode_err != ESP_ERR_WIFI_NOT_INIT) {
-            esp_wifi_deinit();
-            delay(150);
-        }
-        
-        // Initialize with default configuration
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        esp_err_t init_err = esp_wifi_init(&cfg);
-        
-        if (init_err != ESP_OK) {
-            Serial.printf("%s Failed to initialize WiFi: %s\n", 
-                         Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(init_err));
-            return ESP_FAIL;
-        }
-        
-        // Start WiFi
-        esp_err_t start_err = esp_wifi_start();
-        if (start_err != ESP_OK) {
-            Serial.printf("%s Failed to start WiFi: %s\n", 
-                         Minigotchi::getMood().getBroken().c_str(), esp_err_to_name(start_err));
-            return ESP_FAIL;
-        }
-        
-        delay(150);
-    }
-    
-    // Set to STA mode for general operation, with retries
-    bool sta_set = false;
-    for (int retry = 0; retry < 3; retry++) {
-        esp_err_t sta_err = esp_wifi_set_mode(WIFI_MODE_STA);
-        if (sta_err == ESP_OK) {
-            sta_set = true;
-            break;
-        }
-        
-        Serial.printf("%s Failed to set WiFi to STA mode (attempt %d): %s\n", 
-                     Minigotchi::getMood().getBroken().c_str(), retry+1, esp_err_to_name(sta_err));
-        delay(100 * (retry + 1));
-    }
-    
-    if (!sta_set) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to set WiFi to STA mode after multiple attempts.");
-        return ESP_FAIL;
-    }
-    
-    delay(150);
-    
-    // Double-check that promiscuous mode is really off
-    bool is_promiscuous = false;
-    esp_wifi_get_promiscuous(&is_promiscuous);
-    if (is_promiscuous) {
-        Serial.println(Minigotchi::getMood().getBroken() + " WARNING: Still in promiscuous mode after cleanup!");
-        esp_wifi_set_promiscuous(false);
-        delay(100);
-        
-        // Check again
-        esp_wifi_get_promiscuous(&is_promiscuous);
-        if (is_promiscuous) {
-            Serial.println(Minigotchi::getMood().getBroken() + " CRITICAL: Unable to exit promiscuous mode!");
-        }
-    }
-    
-    Serial.println(Minigotchi::getMood().getHappy() + " WiFi Sniffer fully stopped and WiFi reinitialized.");
-    ESP_LOGI(TAG_SNIFFER, "WiFi Sniffer fully stopped.");
+    ESP_LOGI(TAG_SNIFFER, "WiFi Sniffer stopped.");
     return ESP_OK;
 }
 

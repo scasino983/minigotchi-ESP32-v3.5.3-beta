@@ -32,11 +32,6 @@
  */
 
 /**
- * Gets first instance of mood class
- */
-Mood &Channel::mood = Mood::getInstance();
-
-/**
  * Channels to use, matching the config
  */
 int Channel::channelList[13] = {
@@ -54,10 +49,10 @@ void Channel::init(int initChannel) {
   // start on user specified channel
   delay(Config::shortDelay);
   Serial.println(" ");
-  Serial.print(mood.getSleeping() + " Initializing on channel ");
+  Serial.print(Mood::getInstance().getSleeping() + " Initializing on channel ");
   Serial.println(initChannel);
   Serial.println(" ");
-  Display::updateDisplay(mood.getSleeping(),
+  Display::updateDisplay(Mood::getInstance().getSleeping(),
                          "Initializing on channel " + (String)initChannel);
   delay(Config::shortDelay);
 
@@ -67,16 +62,16 @@ void Channel::init(int initChannel) {
   Minigotchi::monStart();
 
   if (err == ESP_OK && initChannel == getChannel()) {
-    Serial.print(mood.getNeutral() + " Successfully initialized on channel ");
+    Serial.print(Mood::getInstance().getNeutral() + " Successfully initialized on channel ");
     Serial.println(getChannel());
-    Display::updateDisplay(mood.getNeutral(),
+    Display::updateDisplay(Mood::getInstance().getNeutral(),
                            "Successfully initialized on channel " +
                                (String)getChannel());
     delay(Config::shortDelay);
   } else {
-    Serial.println(mood.getBroken() +
+    Serial.println(Mood::getInstance().getBroken() +
                    " Channel initialization failed, try again?");
-    Display::updateDisplay(mood.getBroken(),
+    Display::updateDisplay(Mood::getInstance().getBroken(),
                            "Channel initialization failed, try again?");
     delay(Config::shortDelay);
   }
@@ -168,12 +163,12 @@ void Channel::cycle() {
 void Channel::switchChannel(int newChannel) {
   if (!isValidChannel(newChannel)) {
     Serial.printf("%s Invalid channel %d requested. Using default channel %d instead.\n", 
-                  mood.getBroken().c_str(), newChannel, Config::channel);
+                  Mood::getInstance().getBroken().c_str(), newChannel, Config::channel);
     newChannel = Config::channel;
   }
   Serial.printf("%s Switching to channel %d (was on channel %d)\n", 
-                mood.getSleeping().c_str(), newChannel, getChannel());
-  Display::updateDisplay(mood.getSleeping(),
+                Mood::getInstance().getSleeping().c_str(), newChannel, getChannel());
+  Display::updateDisplay(Mood::getInstance().getSleeping(),
                          "Switching to channel " + (String)newChannel);
   
   // Use the dedicated wifi_sniffer_set_channel function instead of manual steps
@@ -187,21 +182,21 @@ void Channel::switchChannel(int newChannel) {
     
     if (actual_channel == newChannel) {
       Serial.printf("%s Successfully switched to channel %d\n", 
-                   mood.getNeutral().c_str(), actual_channel);
-      Display::updateDisplay(mood.getNeutral(),
+                   Mood::getInstance().getNeutral().c_str(), actual_channel);
+      Display::updateDisplay(Mood::getInstance().getNeutral(),
                            "On channel " + (String)actual_channel);
     } else {
       Serial.printf("%s Channel verification failed. Requested: %d, Actual: %d\n", 
-                   mood.getSad().c_str(), newChannel, actual_channel);
-      Display::updateDisplay(mood.getSad(), 
+                   Mood::getInstance().getSad().c_str(), newChannel, actual_channel);
+      Display::updateDisplay(Mood::getInstance().getSad(), 
                            "Ch mismatch! Exp:" + (String)newChannel + 
                            " Act:" + (String)actual_channel);
       err = ESP_FAIL;  // Mark as failed
     }
   } else {
     Serial.printf("%s Failed to switch to channel %d. Error: %s\n", 
-                 mood.getBroken().c_str(), newChannel, esp_err_to_name(err));
-    Display::updateDisplay(mood.getBroken(), 
+                 Mood::getInstance().getBroken().c_str(), newChannel, esp_err_to_name(err));
+    Display::updateDisplay(Mood::getInstance().getBroken(), 
                          "Failed switch to ch " + (String)newChannel);
   }
 }
@@ -217,13 +212,13 @@ bool Channel::checkChannel(int expected_channel) {
   
   if (success) {
     Serial.printf("%s Currently on channel %d (as expected)\n", 
-                 mood.getNeutral().c_str(), currentChannel);
-    Display::updateDisplay(mood.getNeutral(),
+                 Mood::getInstance().getNeutral().c_str(), currentChannel);
+    Display::updateDisplay(Mood::getInstance().getNeutral(),
                          "On channel " + (String)currentChannel);
   } else {
     Serial.printf("%s Channel mismatch! Expected: %d, Actual: %d\n", 
-                 mood.getBroken().c_str(), expected_channel, currentChannel);
-    Display::updateDisplay(mood.getBroken(), 
+                 Mood::getInstance().getBroken().c_str(), expected_channel, currentChannel);
+    Display::updateDisplay(Mood::getInstance().getBroken(), 
                          "Ch mismatch! Exp:" + (String)expected_channel + 
                          " Act:" + (String)currentChannel);
   }

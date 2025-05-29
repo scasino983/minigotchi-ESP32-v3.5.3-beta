@@ -19,13 +19,17 @@
 /**
  * config.h: header files for config.cpp
  */
+
 #ifndef CONFIG_H
 #define CONFIG_H
 
 #include "minigotchi.h"
 #include "parasite.h"
+#include "webui.h"
 #include <Arduino.h>
 #include <esp_wifi.h>
+#include <iostream>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -37,7 +41,7 @@ public:
   static bool deauth;
   static bool advertise;
   static bool scan;
-  // static bool spam; // BLE functionality removed
+  static bool spam;
   static const char *ssid;
   static const char *pass;
   static int shortDelay;
@@ -82,15 +86,13 @@ public:
   static std::string version;
   static wifi_init_config_t wifiCfg;
   static wifi_country_t ctryCfg;
-  static bool configured; // Changed from 'false' to 'configured'
+  static bool configured;
   static void loadConfig();
   static void saveConfig();
-  static int random(int min, int max);
-  static int time();
 
 private:
-  // static int random(int min, int max); // Moved to public or ensure definition is available
-  // static int time(); // Moved to public or ensure definition is available
+  static int random(int min, int max);
+  static int time();
 };
 
 #endif // CONFIG_H

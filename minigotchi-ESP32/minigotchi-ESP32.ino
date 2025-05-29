@@ -42,11 +42,11 @@ bool commandMode = false;
 // Arduino required setup function - runs once at startup
 void setup() {
   Serial.begin(115200);
-  
-  // Initialize Mood first, since it's used by many other components
-  Minigotchi::boot();
 
-  // Initialize the WiFi Manager Singleton after Mood is initialized
+  // Normal boot procedure (which includes Mood::init())
+  Minigotchi::boot();         // MOVED EARLIER
+
+  // Initialize the WiFi Manager Singleton (constructor uses Mood::getInstance())
   WifiManager::getInstance(); 
   
   // Add 3-second window to enter reset command mode
@@ -87,8 +87,8 @@ void setup() {
     }
   }
   
-  // Normal boot procedure
-  Minigotchi::boot();
+  // Normal boot procedure - MOVED EARLIER
+  // Minigotchi::boot(); 
   
   // Start the WiFi sniffer automatically at boot
   sniffer_active = (wifi_sniffer_start() == ESP_OK);
@@ -144,6 +144,20 @@ void resetConfiguration() {
 
 // Arduino required loop function - runs repeatedly
 void loop() {
+  Serial.println("[MAINLOOP] Heartbeat: Entry");
+  // Print heap and stack diagnostics
+  Serial.printf("[MAINLOOP] Free heap: %d\n", ESP.getFreeHeap());
+  UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+  Serial.printf("[MAINLOOP] Stack high water mark: %u\n", stackHighWaterMark);
+  // Print FreeRTOS task list
+  char *taskListBuf = (char*)malloc(1024);
+  if (taskListBuf) {
+    vTaskList(taskListBuf);
+    Serial.println("[MAINLOOP] FreeRTOS task list:");
+    Serial.println(taskListBuf);
+    free(taskListBuf);
+  }
+
   Serial.println("[loop] Entry");
   // Handle serial commands in normal operation mode
   if (Serial.available()) {
@@ -214,6 +228,7 @@ void loop() {
   }
 
   Serial.println("[loop] End");
+  Serial.println("[MAINLOOP] Heartbeat: End");
   delay(100); // Always delay to feed watchdog
   yield();
 }

@@ -29,11 +29,8 @@ DNSServer WebUI::dnsServer;
 AsyncWebServer server(80);
 
 /**
- * Gets first instance of mood class
+ * oh the memories this brings, not very good.
  */
-Mood &WebUI::mood = Mood::getInstance();
-
-// oh the memories this brings, not very good.
 const char WebUI::html[] = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -147,8 +144,8 @@ WebUI::WebUI() {
   WiFi.disconnect(true); // Disconnect from any network and erase SSID/password
   WiFi.mode(WIFI_OFF);   // Explicitly turn WiFi off
   delay(100);            // Small delay to allow it to settle
-  Serial.println(mood.getIntense() + " Starting Web Server...");
-  Display::updateDisplay(mood.getIntense(), "Starting Web Server...");
+  Serial.println(Mood::getInstance().getIntense() + " Starting Web Server...");
+  Display::updateDisplay(Mood::getInstance().getIntense(), "Starting Web Server...");
 
   WiFi.mode(WIFI_AP);
   WiFi.softAP(Config::ssid, Config::pass);
@@ -178,21 +175,21 @@ void WebUI::setupServer() {
       String newWhitelist = request->getParam("whitelist")->value();
       updateWhitelist(newWhitelist);
       request->send(200, "text/html",
-                    mood.getHappy() + " Whitelist updated successfully!<br><a "
+                    Mood::getInstance().getHappy() + " Whitelist updated successfully!<br><a "
                                       "href=\"/\">Return to Home Page</a>");
     } else if (request->hasParam("config")) {
       String configValue = request->getParam("config")->value();
-      Config::configured = (configValue == "true");
+      Config::configured = (configValue == "false");
       Config::saveConfig();
       // Serial.println("Config check: " + String(Config::configured ? "true" :
       // "false"));
       request->send(200, "text/html",
-                    mood.getHappy() +
+                    Mood::getInstance().getHappy() +
                         " Configuration updated! You may exit this tab and "
                         "disconnect from the Wifi AP.<br>");
     } else {
       request->send(200, "text/html",
-                    mood.getBroken() + " No <b>valid</b> input received.<br><a "
+                    Mood::getInstance().getBroken() + " No <b>valid</b> input received.<br><a "
                                        "href=\"/\">Return to Home Page</a>");
     }
   });

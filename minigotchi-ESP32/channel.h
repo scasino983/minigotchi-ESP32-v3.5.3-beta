@@ -26,7 +26,6 @@ public:
 
 private:
   static int channelList[13];
-  static class Mood &mood;
 };
 
 #endif // CHANNEL_H

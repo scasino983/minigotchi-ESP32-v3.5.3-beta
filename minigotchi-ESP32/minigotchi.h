@@ -43,8 +43,6 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 
-// forward declaration of classes
-class Mood;
 class WebUI;
 
 class Minigotchi {
@@ -68,12 +66,12 @@ public:
   static void loadConfig();
   static void saveConfig();
   static int currentEpoch;
-  static Mood& getMood() { return mood; }
+  static Mood& getMood();
 
 private:
   static void WebUITask(void *pvParameters);
   static void waitForInput();
-  static Mood &mood;
+  // static Mood &mood; // Removed
   static WebUI *web;
 };
 

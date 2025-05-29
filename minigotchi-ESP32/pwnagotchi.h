@@ -42,21 +42,22 @@
 // forward declaration of mood class
 class Mood;
 
+extern TaskHandle_t pwnagotchi_scan_task_handle; // Extern declaration
+
 class Pwnagotchi {
 public:
   static void detect();
   static void pwnagotchiCallback(void *buf, wifi_promiscuous_pkt_type_t type);
-  // static void stopCallback(); // Old name
-  static void stop_scan();      // New name
-  static bool is_scanning();    // New method
-  static TaskHandle_t pwnagotchi_scan_task_handle; // Added task handle as static member
-  static Mood &mood; // Moved to public for access from task function
-  static bool pwnagotchiDetected; // Moved to public for access from task function
-  static std::string essid; // Moved to public for access from task function
+  static void stop_scan();
+  static bool is_scanning();
+  static TaskHandle_t pwnagotchi_scan_task_handle;
+  static bool pwnagotchiDetected;
 
 private:
+  static Mood &mood;
   static std::string extractMAC(const unsigned char *buff);
   static void getMAC(char *addr, const unsigned char *buff, int offset);
+  static std::string essid;
 
   // source:
   // https://github.com/justcallmekoko/ESP32Marauder/blob/c0554b95ceb379d29b9a8925d27cc2c0377764a9/esp32_marauder/WiFiScan.h#L213

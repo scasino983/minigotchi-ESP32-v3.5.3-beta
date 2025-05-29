@@ -9,22 +9,17 @@ extern "C" {
 #endif
 
 // Channel Hopping related functions
-bool is_channel_hopping();  // New name used by frame.cpp
-bool is_channel_hopping_active();  // Old name for backward compatibility
-TaskHandle_t get_channel_hopper_task_handle();  // New name used by frame.cpp
-TaskHandle_t get_channel_hopping_task_handle(); // Old name for backward compatibility
+bool is_channel_hopping_active();
+TaskHandle_t get_channel_hopping_task_handle();
 // Note: To get more detailed status of channel hopping (e.g., paused due to errors),
 // additional getter functions would need to be added to channel_hopper.h/cpp.
 
 // Pwnagotchi Scan related functions
-void pwnagotchi_scan_stop();     // New name used by frame.cpp
-void stop_pwnagotchi_scan();     // Old name for backward compatibility
+void stop_pwnagotchi_scan(); // This will call Pwnagotchi::stopCallback()
 
 // Deauthentication related functions
-bool is_deauth_running();        // New name used by frame.cpp
-bool is_deauth_attack_running(); // Old name for backward compatibility
-void deauth_stop();              // New name used by frame.cpp
-void stop_deauth_attack();       // Old name for backward compatibility
+bool is_deauth_attack_running(); // This will call Deauth::is_running()
+void stop_deauth_attack();       // This will call Deauth::stop()
 
 #ifdef __cplusplus
 }

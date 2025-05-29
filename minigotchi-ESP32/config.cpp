@@ -77,7 +77,7 @@ String Config::neutral = "('-')";
 String Config::sleeping = "(-.-)";
 
 // json config
-int Config::epoch = Minigotchi::currentEpoch;
+int Config::epoch = 0; // Initialized to 0
 std::string Config::face = "(^-^)";
 std::string Config::identity =
     "b9210077f7c14c0651aa338c55e820e93f90110ef679648001b1cecdbffc0090";

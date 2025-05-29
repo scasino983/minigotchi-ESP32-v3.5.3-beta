@@ -44,6 +44,9 @@ private:
     void initialize_wifi(); // Basic ESP-IDF init
     void deinitialize_wifi();
 
+    // Ensures WiFi stack is initialized and started; idempotent and thread-safe
+    bool ensure_wifi_initialized();
+
     bool transition_to_state(wifi_operational_state_t target_state, const char* requester_tag);
 
     static wifi_operational_state_t current_state;

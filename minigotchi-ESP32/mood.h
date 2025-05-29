@@ -24,9 +24,12 @@
 #define MOOD_H
 
 #include "config.h"
-#include "display.h"
+// #include "display.h" // Removed to break circular dependency
 #include <Arduino.h>
 #include <string>
+
+// Forward declaration
+class Display;
 
 class Mood {
 public:

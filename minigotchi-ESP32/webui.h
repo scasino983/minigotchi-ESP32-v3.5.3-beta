@@ -48,7 +48,6 @@ public:
   static DNSServer dnsServer;
 
 private:
-  static Mood &mood; // Declare mood
 };
 
 #endif // WEBUI_H

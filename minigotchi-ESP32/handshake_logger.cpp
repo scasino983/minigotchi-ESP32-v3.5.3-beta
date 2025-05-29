@@ -30,11 +30,11 @@ static int get_next_csv_file_index(const char *base_path, const char *base_filen
     File csvDir = SD.open(base_path);
 
     if (!csvDir) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to open handshake CSV directory for indexing: " + String(base_path));
+        Serial.println(Mood::getInstance().getBroken() + " Failed to open handshake CSV directory for indexing: " + String(base_path));
         return 0; 
     }
     if (!csvDir.isDirectory()) {
-        Serial.println(Minigotchi::getMood().getBroken() + " " + String(base_path) + " is not a directory.");
+        Serial.println(Mood::getInstance().getBroken() + " " + String(base_path) + " is not a directory.");
         csvDir.close();
         return 0;
     }
@@ -66,28 +66,28 @@ static int get_next_csv_file_index(const char *base_path, const char *base_filen
 
 esp_err_t handshake_logger_init(void) {
     if (csv_mutex != NULL) {
-        Serial.println(Minigotchi::getMood().getNeutral() + " Handshake logger already initialized.");
+        Serial.println(Mood::getInstance().getNeutral() + " Handshake logger already initialized.");
         return ESP_OK; 
     }
 
     csv_mutex = xSemaphoreCreateMutex();
     if (csv_mutex == NULL) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to create handshake CSV mutex!");
+        Serial.println(Mood::getInstance().getBroken() + " Failed to create handshake CSV mutex!");
         return ESP_FAIL;
     }
 
     if (!SD.exists(HANDSHAKE_CSV_DIR)) {
-        Serial.println(Minigotchi::getMood().getNeutral() + " Handshake CSV directory " + String(HANDSHAKE_CSV_DIR) + " not found, creating...");
+        Serial.println(Mood::getInstance().getNeutral() + " Handshake CSV directory " + String(HANDSHAKE_CSV_DIR) + " not found, creating...");
         if (SD.mkdir(HANDSHAKE_CSV_DIR)) {
-            Serial.println(Minigotchi::getMood().getHappy() + " Handshake CSV directory created: " + String(HANDSHAKE_CSV_DIR));
+            Serial.println(Mood::getInstance().getHappy() + " Handshake CSV directory created: " + String(HANDSHAKE_CSV_DIR));
         } else {
-            Serial.println(Minigotchi::getMood().getBroken() + " Failed to create handshake CSV directory: " + String(HANDSHAKE_CSV_DIR));
+            Serial.println(Mood::getInstance().getBroken() + " Failed to create handshake CSV directory: " + String(HANDSHAKE_CSV_DIR));
             vSemaphoreDelete(csv_mutex);
             csv_mutex = NULL;
             return ESP_FAIL;
         }
     }
-    Serial.println(Minigotchi::getMood().getHappy() + " Handshake logger initialized.");
+    Serial.println(Mood::getInstance().getHappy() + " Handshake logger initialized.");
     return ESP_OK;
 }
 
@@ -97,7 +97,7 @@ esp_err_t handshake_logger_open_new_file(void) {
     }
 
     if (xSemaphoreTake(csv_mutex, portMAX_DELAY) != pdTRUE) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Handshake CSV: Could not take mutex for opening file.");
+        Serial.println(Mood::getInstance().getBroken() + " Handshake CSV: Could not take mutex for opening file.");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -107,21 +107,21 @@ esp_err_t handshake_logger_open_new_file(void) {
 
     current_csv_file = SD.open(current_csv_filename, FILE_WRITE);
     if (!current_csv_file) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to open new handshake CSV file: " + String(current_csv_filename));
+        Serial.println(Mood::getInstance().getBroken() + " Failed to open new handshake CSV file: " + String(current_csv_filename));
         xSemaphoreGive(csv_mutex);
         return ESP_FAIL;
     }
 
     // Write CSV header
     if (current_csv_file.println("timestamp,bssid,station_mac,ssid,message_type,channel") == 0) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to write header to handshake CSV file: " + String(current_csv_filename));
+        Serial.println(Mood::getInstance().getBroken() + " Failed to write header to handshake CSV file: " + String(current_csv_filename));
         current_csv_file.close();
         xSemaphoreGive(csv_mutex);
         return ESP_FAIL;
     }
 
     csv_file_is_open = true;
-    Serial.println(Minigotchi::getMood().getHappy() + " Opened new handshake CSV file: " + String(current_csv_filename));
+    Serial.println(Mood::getInstance().getHappy() + " Opened new handshake CSV file: " + String(current_csv_filename));
     xSemaphoreGive(csv_mutex);
     return ESP_OK;
 }
@@ -130,13 +130,13 @@ void handshake_logger_close_file(void) {
     if (!csv_file_is_open) return;
 
     if (xSemaphoreTake(csv_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) { 
-        Serial.println(Minigotchi::getMood().getBroken() + " Handshake CSV: Could not take mutex for closing file.");
+        Serial.println(Mood::getInstance().getBroken() + " Handshake CSV: Could not take mutex for closing file.");
         return;
     }
     
     if (current_csv_file) {
         current_csv_file.close();
-        Serial.println(Minigotchi::getMood().getHappy() + " Closed handshake CSV file: " + String(current_csv_filename));
+        Serial.println(Mood::getInstance().getHappy() + " Closed handshake CSV file: " + String(current_csv_filename));
     }
     csv_file_is_open = false;
     xSemaphoreGive(csv_mutex);
@@ -167,15 +167,15 @@ esp_err_t handshake_logger_write_entry(const char* bssid, const char* station_ma
 
     // If file isn't open, try to open one
     if (!csv_file_is_open) {
-        Serial.println(Minigotchi::getMood().getNeutral() + " Handshake CSV: File not open, attempting to open new file before writing entry.");
+        Serial.println(Mood::getInstance().getNeutral() + " Handshake CSV: File not open, attempting to open new file before writing entry.");
         if (handshake_logger_open_new_file() != ESP_OK) {
-            Serial.println(Minigotchi::getMood().getBroken() + " Handshake CSV: Failed to auto-open file. Entry not written.");
+            Serial.println(Mood::getInstance().getBroken() + " Handshake CSV: Failed to auto-open file. Entry not written.");
             return ESP_FAIL;
         }
     }
 
     if (xSemaphoreTake(csv_mutex, portMAX_DELAY) != pdTRUE) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Handshake CSV: Could not take mutex for writing entry.");
+        Serial.println(Mood::getInstance().getBroken() + " Handshake CSV: Could not take mutex for writing entry.");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -206,7 +206,7 @@ esp_err_t handshake_logger_write_entry(const char* bssid, const char* station_ma
                    String(channel);
                    
     if (current_csv_file.println(entry) == 0) {
-        Serial.println(Minigotchi::getMood().getBroken() + " Failed to write entry to handshake CSV file.");
+        Serial.println(Mood::getInstance().getBroken() + " Failed to write entry to handshake CSV file.");
         xSemaphoreGive(csv_mutex);
         return ESP_FAIL;
     }
@@ -214,7 +214,7 @@ esp_err_t handshake_logger_write_entry(const char* bssid, const char* station_ma
     // Flush immediately to ensure data is written to SD card
     current_csv_file.flush();
     
-    Serial.println(Minigotchi::getMood().getHappy() + " Recorded handshake with BSSID: " + String(bssid) + 
+    Serial.println(Mood::getInstance().getHappy() + " Recorded handshake with BSSID: " + String(bssid) + 
                   ", SSID: " + String(found_ssid.c_str()) + ", Type: " + String(msg_type));
       // Increment the handshake count
     handshake_count++;
@@ -239,7 +239,7 @@ esp_err_t handshake_logger_get_total_handshakes(int* total_count) {
 
 void handshake_logger_deinit(void) {
     if (csv_mutex == NULL) { 
-        Serial.println(Minigotchi::getMood().getNeutral() + " Handshake logger already de-initialized or was not initialized.");
+        Serial.println(Mood::getInstance().getNeutral() + " Handshake logger already de-initialized or was not initialized.");
         return;
     }
 
@@ -256,8 +256,8 @@ void handshake_logger_deinit(void) {
         xSemaphoreGive(csv_mutex);
         vSemaphoreDelete(csv_mutex);
         csv_mutex = NULL;
-        Serial.println(Minigotchi::getMood().getNeutral() + " Handshake logger de-initialized.");
+        Serial.println(Mood::getInstance().getNeutral() + " Handshake logger de-initialized.");
     } else {
-        Serial.println(Minigotchi::getMood().getBroken() + " Handshake logger could not be de-initialized properly (mutex timeout).");
+        Serial.println(Mood::getInstance().getBroken() + " Handshake logger could not be de-initialized properly (mutex timeout).");
     }
 }

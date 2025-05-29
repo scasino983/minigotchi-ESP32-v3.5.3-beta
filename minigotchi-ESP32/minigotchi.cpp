@@ -15,6 +15,7 @@
 // #include "ble.h" // BLE functionality removed
 #include "webui.h"
 #include "AXP192.h"
+#include "wifi_manager.h"
 
 #include <SPI.h>
 #include <SD.h>
@@ -29,23 +30,23 @@
 #endif
 
 // Initializing static members
-Mood &Minigotchi::mood = Mood::getInstance();
+// Mood &Minigotchi::mood = Mood::getInstance(); // REMOVED
 WebUI *Minigotchi::web = nullptr;
 int Minigotchi::currentEpoch = 0;
 
 void Minigotchi::WebUITask(void *pvParameters) {
   WebUI web_ui_obj;
   if (!WebUI::running) {
-      Serial.println(Minigotchi::mood.getBroken() + " WebUI failed to initialize properly in constructor!");
+      Serial.println(Mood::getInstance().getBroken() + " WebUI failed to initialize properly in constructor!");
       vTaskDelete(NULL);
       return;
   }
-  Serial.println(Minigotchi::mood.getNeutral() + " WebUITask: WebUI object created/accessible, entering wait loop.");
+  Serial.println(Mood::getInstance().getNeutral() + " WebUITask: WebUI object created/accessible, entering wait loop.");
   while (!Config::configured) {
     WebUI::processDNS();
     taskYIELD();
   }
-  Serial.println(Minigotchi::mood.getHappy() + " WebUITask: Config::configured is true. Cleaning up WebUI.");
+  Serial.println(Mood::getInstance().getHappy() + " WebUITask: Config::configured is true. Cleaning up WebUI.");
   // Destructor for web_ui_obj will be called when task exits.
   vTaskDelete(NULL);
 }
@@ -67,10 +68,10 @@ int Minigotchi::addEpoch() {
 void Minigotchi::epoch() {
   Minigotchi::addEpoch();
   Parasite::readData();
-  Serial.print(Minigotchi::mood.getNeutral() + " Current Epoch: ");
+  Serial.print(Mood::getInstance().getNeutral() + " Current Epoch: ");
   Serial.println(Minigotchi::currentEpoch);
   Serial.println(" ");
-  Display::updateDisplay(Minigotchi::mood.getNeutral(),
+  Display::updateDisplay(Mood::getInstance().getNeutral(),
                          "Current Epoch: " + String(Minigotchi::currentEpoch));
 }
 
@@ -90,16 +91,16 @@ void Minigotchi::boot() {
 
   Display::startScreen();
   Serial.println(" ");
-  Serial.println(Minigotchi::mood.getHappy() +
+  Serial.println(Mood::getInstance().getHappy() +
                  " Hi, I'm Minigotchi, your pwnagotchi's best friend!");
-  Display::updateDisplay(Minigotchi::mood.getHappy(), "Hi, I'm Minigotchi");
+  Display::updateDisplay(Mood::getInstance().getHappy(), "Hi, I'm Minigotchi");
   delay(Config::shortDelay);
-  Serial.println(Minigotchi::mood.getNeutral() +
+  Serial.println(Mood::getInstance().getNeutral() +
                  " You can edit my configuration parameters in config.cpp!");
-  Display::updateDisplay(Minigotchi::mood.getNeutral(), "Edit config.cpp!");
+  Display::updateDisplay(Mood::getInstance().getNeutral(), "Edit config.cpp!");
   delay(Config::shortDelay);
-  Serial.println(Minigotchi::mood.getIntense() + " Starting now...");
-  Display::updateDisplay(Minigotchi::mood.getIntense(), "Starting now");
+  Serial.println(Mood::getInstance().getIntense() + " Starting now...");
+  Display::updateDisplay(Mood::getInstance().getIntense(), "Starting now");
   delay(Config::shortDelay);
   Serial.println("################################################");
   Serial.println("#                BOOTUP PROCESS                #");
@@ -117,14 +118,14 @@ void Minigotchi::boot() {
   Config::loadConfig(); // Load configuration (sets Config::configured)
 
   // SD Card Initialization
-  Serial.println(Minigotchi::mood.getNeutral() + " Initializing SD card...");
+  Serial.println(Mood::getInstance().getNeutral() + " Initializing SD card...");
   if (!SD.begin(SD_CS_PIN)) {
     Serial.println("SD card initialization failed!");
-    Display::updateDisplay(getMood().getSad(), "SD Card Failed!");
+    Display::updateDisplay(Mood::getInstance().getSad(), "SD Card Failed!");
     delay(Config::shortDelay);
   } else {
     Serial.println("SD card initialized successfully!");
-    Display::updateDisplay(getMood().getHappy(), "SD Card OK!");
+    Display::updateDisplay(Mood::getInstance().getHappy(), "SD Card OK!");
     delay(Config::shortDelay);
     // SD card test file creation
     File testFile = SD.open("/minigotchi_sd_test.txt", FILE_WRITE);
@@ -197,16 +198,15 @@ void Minigotchi::boot() {
   ESP_ERROR_CHECK(esp_wifi_set_country(&Config::ctryCfg));
 
   if (!Config::configured) {
-    Serial.println(Minigotchi::mood.getNeutral() + " Device not configured. Starting WebUI for setup...");
+    Serial.println(Mood::getInstance().getNeutral() + " Device not configured. Starting WebUI for setup...");
     waitForInput();
-    Serial.println(Minigotchi::mood.getHappy() + " WebUI configuration completed.");
+    Serial.println(Mood::getInstance().getHappy() + " WebUI configuration completed.");
     WiFi.mode(WIFI_OFF);
-    Serial.println(Minigotchi::mood.getNeutral() + " WiFi turned OFF after WebUI config.");
+    Serial.println(Mood::getInstance().getNeutral() + " WiFi turned OFF after WebUI config.");
   } else {
-    Serial.println(Minigotchi::mood.getNeutral() + " Device already configured. Setting up WiFi in STA mode...");
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    Serial.println(Minigotchi::mood.getNeutral() + " WiFi STA mode enabled. (Connection attempt depends on saved credentials).");
+    Serial.println(Mood::getInstance().getNeutral() + " Device already configured. Setting up WiFi in STA mode via WifiManager...");
+    WifiManager::getInstance().request_sta_mode("boot");
+    Serial.println(Mood::getInstance().getNeutral() + " WiFi STA mode enabled (via WifiManager). (Connection attempt depends on saved credentials).");
   }
 
   Deauth::list();
@@ -214,16 +214,16 @@ void Minigotchi::boot() {
   // Minigotchi::info(); // Called later in loop or by other functions
 
   // Start WiFi Sniffer for testing (30-second capture then stop)
-  Serial.println(Minigotchi::mood.getNeutral() + " Attempting to start WiFi sniffer for testing...");
+  Serial.println(Mood::getInstance().getNeutral() + " Attempting to start WiFi sniffer for testing...");
   esp_err_t sniffer_err = wifi_sniffer_start(); // This will also open the first PCAP file
   if (sniffer_err == ESP_OK) {
-      Serial.println(Minigotchi::mood.getHappy() + " WiFi sniffer started for 30-second test from boot().");
+      Serial.println(Mood::getInstance().getHappy() + " WiFi sniffer started for 30-second test from boot().");
       delay(30000); // Sniff for 30 seconds
-      Serial.println(Minigotchi::mood.getNeutral() + " Stopping WiFi sniffer after 30s test.");
+      Serial.println(Mood::getInstance().getNeutral() + " Stopping WiFi sniffer after 30s test.");
       wifi_sniffer_stop(); // This will close the PCAP file
-      Serial.println(Minigotchi::mood.getNeutral() + " WiFi sniffer stopped after test.");
+      Serial.println(Mood::getInstance().getNeutral() + " WiFi sniffer stopped after test.");
   } else {
-      Serial.println(Minigotchi::mood.getBroken() + " Failed to start WiFi sniffer from boot(). Error: " + String(esp_err_to_name(sniffer_err)));
+      Serial.println(Mood::getInstance().getBroken() + " Failed to start WiFi sniffer from boot(). Error: " + String(esp_err_to_name(sniffer_err)));
   }
 
   Minigotchi::finish();
@@ -232,8 +232,8 @@ void Minigotchi::boot() {
 void Minigotchi::info() {
   delay(Config::shortDelay);
   Serial.println(" ");
-  Serial.println(Minigotchi::mood.getNeutral() + " Current Minigotchi Stats: ");
-  Display::updateDisplay(Minigotchi::mood.getNeutral(), "Current Minigotchi Stats:");
+  Serial.println(Mood::getInstance().getNeutral() + " Current Minigotchi Stats: ");
+  Display::updateDisplay(Mood::getInstance().getNeutral(), "Current Minigotchi Stats:");
   version();
   mem();
   cpu();
@@ -244,91 +244,48 @@ void Minigotchi::info() {
 void Minigotchi::finish() {
   Serial.println("################################################");
   Serial.println(" ");
-  Serial.println(Minigotchi::mood.getHappy() + " Started successfully!");
-  Display::updateDisplay(Minigotchi::mood.getHappy(), "Started successfully"); // Corrected typo
+  Serial.println(Mood::getInstance().getHappy() + " Started successfully!");
+  Display::updateDisplay(Mood::getInstance().getHappy(), "Started successfully"); // Corrected typo
   delay(Config::shortDelay);
 }
 
 void Minigotchi::version() {
-  Serial.print(Minigotchi::mood.getNeutral() + " Version: ");
+  Serial.print(Mood::getInstance().getNeutral() + " Version: ");
   Serial.println(Config::version.c_str());
-  Display::updateDisplay(Minigotchi::mood.getNeutral(),
+  Display::updateDisplay(Mood::getInstance().getNeutral(),
                          "Version: " + String(Config::version.c_str()));
   delay(Config::shortDelay);
 }
 
 void Minigotchi::mem() {
-  Serial.print(Minigotchi::mood.getNeutral() + " Heap: ");
+  Serial.print(Mood::getInstance().getNeutral() + " Heap: ");
   Serial.print(ESP.getFreeHeap());
   Serial.println(" bytes");
-  Display::updateDisplay(Minigotchi::mood.getNeutral(),
+  Display::updateDisplay(Mood::getInstance().getNeutral(),
                          "Heap: " + String(ESP.getFreeHeap()) + " bytes");
   delay(Config::shortDelay);
 }
 
 void Minigotchi::cpu() {
-  Serial.print(Minigotchi::mood.getNeutral() + " CPU Frequency: ");
+  Serial.print(Mood::getInstance().getNeutral() + " CPU Frequency: ");
   Serial.print(ESP.getCpuFreqMHz());
   Serial.println(" MHz");
-  Display::updateDisplay(Minigotchi::mood.getNeutral(),
+  Display::updateDisplay(Mood::getInstance().getNeutral(),
                          "CPU Frequency: " + String(ESP.getCpuFreqMHz()) + " MHz");
   delay(Config::shortDelay);
 }
 
 bool Minigotchi::monStart() {
-  // First check if WiFi is initialized at all
+  // First check if WiFi is initialized at all - but don't initialize here since WifiManager should have done that
   wifi_mode_t mode;
   esp_err_t mode_err = esp_wifi_get_mode(&mode);
   
   if (mode_err == ESP_ERR_WIFI_NOT_INIT) {
-    Serial.println(Minigotchi::mood.getIntense() + " WiFi not initialized, performing initialization...");
-    
-    // Initialize WiFi with default configuration
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_err_t init_err = esp_wifi_init(&cfg);
-    
-    if (init_err != ESP_OK) {
-      Serial.printf("%s Failed to initialize WiFi: %s\n", 
-                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(init_err));
-      return false;
-    }
-    
-    // Start WiFi with retry mechanism
-    esp_err_t start_err = ESP_FAIL;
-    for (int retry = 0; retry < 3; retry++) {
-      start_err = esp_wifi_start();
-      if (start_err == ESP_OK) {
-        break;
-      }
-      
-      Serial.printf("%s Failed to start WiFi (attempt %d): %s\n", 
-                   Minigotchi::mood.getBroken().c_str(), retry+1, esp_err_to_name(start_err));
-      
-      if (retry < 2) {
-        delay(100 * (retry + 1));
-      }
-    }
-    
-    if (start_err != ESP_OK) {
-      Serial.printf("%s Failed to start WiFi after multiple attempts: %s\n", 
-                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(start_err));
-      esp_wifi_deinit(); // Clean up
-      return false;
-    }
-    
-    // Give WiFi time to initialize
-    delay(150);
-    
-    // Re-check mode after initialization
-    mode_err = esp_wifi_get_mode(&mode);
-    if (mode_err != ESP_OK) {
-      Serial.printf("%s Failed to get WiFi mode after init: %s\n", 
-                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(mode_err));
-      return false;
-    }
+    Serial.println(Mood::getInstance().getBroken() + " WiFi not initialized in monStart, but WifiManager should have done this!");
+    return false;
   } else if (mode_err != ESP_OK) {
     Serial.printf("%s Error checking WiFi mode: %s\n", 
-                 Minigotchi::mood.getBroken().c_str(), esp_err_to_name(mode_err));
+                 Mood::getInstance().getBroken().c_str(), esp_err_to_name(mode_err));
     return false;
   }
   
@@ -349,7 +306,7 @@ bool Minigotchi::monStart() {
     }
     
     Serial.printf("%s Failed to set WiFi to STA mode (attempt %d): %s\n", 
-                 Minigotchi::mood.getBroken().c_str(), retry+1, esp_err_to_name(sta_err));
+                 Mood::getInstance().getBroken().c_str(), retry+1, esp_err_to_name(sta_err));
     
     if (retry < 2) {
       delay(100 * (retry + 1));
@@ -357,7 +314,7 @@ bool Minigotchi::monStart() {
   }
   
   if (!sta_mode_set) {
-    Serial.println(Minigotchi::mood.getBroken() + " Failed to set WiFi to STA mode after multiple attempts.");
+    Serial.println(Mood::getInstance().getBroken() + " Failed to set WiFi to STA mode after multiple attempts.");
     return false;
   }
   
@@ -369,7 +326,7 @@ bool Minigotchi::monStart() {
   esp_wifi_get_promiscuous(&is_promiscuous);
   
   if (is_promiscuous) {
-    Serial.println(Minigotchi::mood.getNeutral() + " Already in promiscuous mode.");
+    Serial.println(Mood::getInstance().getNeutral() + " Already in promiscuous mode.");
     return true;
   }
   
@@ -383,7 +340,7 @@ bool Minigotchi::monStart() {
       break;
     } else {
       Serial.printf("%s Failed to start monitor mode (attempt %d): %s\n", 
-                   Minigotchi::mood.getSad().c_str(), attempt, esp_err_to_name(promisc_err));
+                   Mood::getInstance().getSad().c_str(), attempt, esp_err_to_name(promisc_err));
       
       if (attempt < 3) {
         // Retry with increasing delay
@@ -399,12 +356,12 @@ bool Minigotchi::monStart() {
   }
   
   if (success) {
-    Serial.println(Minigotchi::mood.getHappy() + " Monitor mode started successfully.");
+    Serial.println(Mood::getInstance().getHappy() + " Monitor mode started successfully.");
   } else {
-    Serial.println(Minigotchi::mood.getBroken() + " Failed to start monitor mode after multiple attempts.");
+    Serial.println(Mood::getInstance().getBroken() + " Failed to start monitor mode after multiple attempts.");
     
     // One last desperate attempt with a full WiFi reset
-    Serial.println(Minigotchi::mood.getIntense() + " Attempting full WiFi reset as last resort...");
+    Serial.println(Mood::getInstance().getIntense() + " Attempting full WiFi reset as last resort...");
     
     // Full cleanup
     esp_wifi_stop();
@@ -415,13 +372,13 @@ bool Minigotchi::monStart() {
     // Reinitialize
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     if (esp_wifi_init(&cfg) != ESP_OK || esp_wifi_start() != ESP_OK) {
-      Serial.println(Minigotchi::mood.getBroken() + " Last resort WiFi reset failed.");
+      Serial.println(Mood::getInstance().getBroken() + " Last resort WiFi reset failed.");
       return false;
     }
     
     // Try STA mode again
     if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) {
-      Serial.println(Minigotchi::mood.getBroken() + " Failed to set STA mode after reset.");
+      Serial.println(Mood::getInstance().getBroken() + " Failed to set STA mode after reset.");
       return false;
     }
     
@@ -430,18 +387,18 @@ bool Minigotchi::monStart() {
     // One final attempt to enable promiscuous mode
     esp_err_t final_attempt = esp_wifi_set_promiscuous(true);
     if (final_attempt == ESP_OK) {
-      Serial.println(Minigotchi::mood.getHappy() + " Monitor mode started after last resort reset!");
+      Serial.println(Mood::getInstance().getHappy() + " Monitor mode started after last resort reset!");
       success = true;
     } else {
       Serial.printf("%s Final attempt to start monitor mode failed: %s\n", 
-                   Minigotchi::mood.getBroken().c_str(), esp_err_to_name(final_attempt));
+                   Mood::getInstance().getBroken().c_str(), esp_err_to_name(final_attempt));
     }
   }
   
   // Verify we're actually in promiscuous mode
   esp_wifi_get_promiscuous(&is_promiscuous);
   if (!is_promiscuous && success) {
-    Serial.println(Minigotchi::mood.getBroken() + " WARNING: Monitor mode state verification failed!");
+    Serial.println(Mood::getInstance().getBroken() + " WARNING: Monitor mode state verification failed!");
     success = false;
   }
   
@@ -454,16 +411,16 @@ void Minigotchi::monStop() {
   esp_err_t mode_err = esp_wifi_get_mode(&mode);
 
   if (mode_err == ESP_ERR_WIFI_NOT_INIT) {
-    Serial.println(mood.getBroken() + " WiFi not initialized, cannot stop monitor mode properly.");
+    Serial.println(Mood::getInstance().getBroken() + " WiFi not initialized, cannot stop monitor mode properly.");
     // Try to reinitialize WiFi for cleanup
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     if (esp_wifi_init(&cfg) == ESP_OK) {
       esp_wifi_start();
       delay(100);
       WiFi.mode(WIFI_STA);
-      Serial.println(mood.getNeutral() + " WiFi reinitialized in STA mode.");
+      Serial.println(Mood::getInstance().getNeutral() + " WiFi reinitialized in STA mode.");
     } else {
-      Serial.println(mood.getBroken() + " Failed to reinitialize WiFi for monStop.");
+      Serial.println(Mood::getInstance().getBroken() + " Failed to reinitialize WiFi for monStop.");
     }
     return;
   }
@@ -472,7 +429,7 @@ void Minigotchi::monStop() {
   bool is_promiscuous = false;
   esp_err_t check_err = esp_wifi_get_promiscuous(&is_promiscuous);
   if (check_err != ESP_OK) {
-    Serial.println(mood.getBroken() + " Error checking promiscuous mode: " + String(esp_err_to_name(check_err)));
+    Serial.println(Mood::getInstance().getBroken() + " Error checking promiscuous mode: " + String(esp_err_to_name(check_err)));
   }
 
   // Always disable callback
@@ -486,15 +443,15 @@ void Minigotchi::monStop() {
       success = true;
       break;
     } else {
-      Serial.println(mood.getSad() + " Failed to stop monitor mode on attempt " + String(attempt) + ". Error: " + String(esp_err_to_name(promisc_off_err)));
+      Serial.println(Mood::getInstance().getSad() + " Failed to stop monitor mode on attempt " + String(attempt) + ". Error: " + String(esp_err_to_name(promisc_off_err)));
       delay(100 * attempt);
     }
   }
 
   if (success) {
-    Serial.println(mood.getNeutral() + " Promiscuous mode stopped.");
+    Serial.println(Mood::getInstance().getNeutral() + " Promiscuous mode stopped.");
   } else {
-    Serial.println(mood.getBroken() + " Failed to stop monitor mode properly after multiple attempts.");
+    Serial.println(Mood::getInstance().getBroken() + " Failed to stop monitor mode properly after multiple attempts.");
     // Force WiFi reset as a last resort
     esp_wifi_stop();
     delay(100);
@@ -503,9 +460,9 @@ void Minigotchi::monStop() {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     if (esp_wifi_init(&cfg) == ESP_OK && esp_wifi_start() == ESP_OK) {
       WiFi.mode(WIFI_STA);
-      Serial.println(mood.getNeutral() + " WiFi reset and set to STA mode after failed monStop.");
+      Serial.println(Mood::getInstance().getNeutral() + " WiFi reset and set to STA mode after failed monStop.");
     } else {
-      Serial.println(mood.getBroken() + " Last resort WiFi reset failed in monStop.");
+      Serial.println(Mood::getInstance().getBroken() + " Last resort WiFi reset failed in monStop.");
     }
   }
 }
@@ -536,38 +493,40 @@ void Minigotchi::advertise() {
 // }
 
 void Minigotchi::displaySecurityEvaluation() {
-  Serial.println(Minigotchi::mood.getNeutral() + " --- Security Evaluation ---");
-  Display::updateDisplay(Minigotchi::mood.getNeutral(), "Security Stats:");
+  Serial.println(Mood::getInstance().getNeutral() + " --- Security Evaluation ---");
+  Display::updateDisplay(Mood::getInstance().getNeutral(), "Security Stats:");
   delay(Config::shortDelay);
 
   // Display Live AP Count
-  Serial.println(Minigotchi::mood.getLooking1() + " Scanning for APs...");
-  Display::updateDisplay(Minigotchi::mood.getLooking1(), "Scanning APs...");
+  Serial.println(Mood::getInstance().getLooking1() + " Scanning for APs...");
+  Display::updateDisplay(Mood::getInstance().getLooking1(), "Scanning APs...");
   int apCount = WiFi.scanNetworks(false, true); // Scan hidden SSIDs as well, don't block
   if (apCount < 0) {
-    Serial.println(Minigotchi::mood.getBroken() + " WiFi scan error!");
-    Display::updateDisplay(Minigotchi::mood.getBroken(), "AP Scan Error");
+    Serial.println(Mood::getInstance().getBroken() + " WiFi scan error!");
+    Display::updateDisplay(Mood::getInstance().getBroken(), "AP Scan Error");
     apCount = 0;
   } else {
-    Serial.println(Minigotchi::mood.getHappy() + " Found " + String(apCount) + " APs.");
-    Display::updateDisplay(Minigotchi::mood.getHappy(), "APs Found: " + String(apCount));
+    Serial.println(Mood::getInstance().getHappy() + " Found " + String(apCount) + " APs.");
+    Display::updateDisplay(Mood::getInstance().getHappy(), "APs Found: " + String(apCount));
   }
   delay(Config::longDelay); // Display for a bit
   // Placeholder for total handshakes - to be implemented next
-  Serial.println(Minigotchi::mood.getNeutral() + " Total Handshakes: (counting...)");
-  Display::updateDisplay(Minigotchi::mood.getNeutral(), "Handshakes: (counting...)");
+  Serial.println(Mood::getInstance().getNeutral() + " Total Handshakes: (counting...)");
+  Display::updateDisplay(Mood::getInstance().getNeutral(), "Handshakes: (counting...)");
   delay(Config::shortDelay);
   
   // Get and display the handshake count
   int totalHandshakes = 0;
   if (handshake_logger_get_total_handshakes(&totalHandshakes) == ESP_OK) {
-    Serial.println(Minigotchi::mood.getHappy() + " Total Handshakes: " + String(totalHandshakes));
-    Display::updateDisplay(Minigotchi::mood.getHappy(), "Handshakes: " + String(totalHandshakes));
+    Serial.println(Mood::getInstance().getHappy() + " Total Handshakes: " + String(totalHandshakes));
+    Display::updateDisplay(Mood::getInstance().getHappy(), "Handshakes: " + String(totalHandshakes));
   } else {
-    Serial.println(Minigotchi::mood.getBroken() + " Error getting handshake count");
-    Display::updateDisplay(Minigotchi::mood.getBroken(), "Error getting handshake count");
+    Serial.println(Mood::getInstance().getBroken() + " Error getting handshake count");
+    Display::updateDisplay(Mood::getInstance().getBroken(), "Error getting handshake count");
   }
-  // Serial.println(Minigotchi::mood.getNeutral() + " Total Handshakes: " + String(totalHandshakes));
-  // Display::updateDisplay(Minigotchi::mood.getNeutral(), "Handshakes: " + String(totalHandshakes));
+  // Serial.println(Mood::getInstance().getNeutral() + " Total Handshakes: " + String(totalHandshakes));
+  // Display::updateDisplay(Mood::getInstance().getNeutral(), "Handshakes: " + String(totalHandshakes));
   // delay(Config::longDelay);
 }
+
+Mood& Minigotchi::getMood() { return Mood::getInstance(); }
