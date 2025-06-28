@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <TextView
+        android:id="@+id/tvPlayerMatchScore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Player Rounds: 0"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toStartOf="@+id/tvOpponentMatchScore"
+        app:layout_constraintHorizontal_bias="0.5"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/tvOpponentMatchScore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Opponent Rounds: 0"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.5"
+        app:layout_constraintStart_toEndOf="@+id/tvPlayerMatchScore"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/tvPlayerRoundScore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Player Pogs (Round): 0"
+        android:textSize="18sp"
+        app:layout_constraintEnd_toStartOf="@+id/tvOpponentRoundScore"
+        app:layout_constraintHorizontal_bias="0.5"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvPlayerMatchScore" />
+
+    <TextView
+        android:id="@+id/tvOpponentRoundScore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Opponent Pogs (Round): 0"
+        android:textSize="18sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.5"
+        app:layout_constraintStart_toEndOf="@+id/tvPlayerRoundScore"
+        app:layout_constraintTop_toBottomOf="@+id/tvOpponentMatchScore" />
+
+    <View
+        android:id="@+id/pogStackArea"
+        android:layout_width="150dp"
+        android:layout_height="200dp"
+        android:background="#CCCCCC"
+        app:layout_constraintBottom_toTopOf="@+id/slammerArea"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvPlayerRoundScore"
+        app:layout_constraintVertical_bias="0.4" />
+
+    <TextView
+        android:id="@+id/tvPogStackLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Pog Stack"
+        app:layout_constraintBottom_toTopOf="@+id/pogStackArea"
+        app:layout_constraintEnd_toEndOf="@+id/pogStackArea"
+        app:layout_constraintStart_toStartOf="@+id/pogStackArea" />
+
+    <View
+        android:id="@+id/slammerArea"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:layout_marginBottom="32dp"
+        android:background="#AAAAAA"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <TextView
+        android:id="@+id/tvSlammerLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Slammer"
+        app:layout_constraintBottom_toTopOf="@+id/slammerArea"
+        app:layout_constraintEnd_toEndOf="@+id/slammerArea"
+        app:layout_constraintStart_toStartOf="@+id/slammerArea" />
+
+    <TextView
+        android:id="@+id/tvGameMessage"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:gravity="center"
+        android:text="Game Message"
+        android:textSize="16sp"
+        app:layout_constraintBottom_toTopOf="@+id/slammerArea"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btnThrowSlammer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Throw Slammer"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/slammerArea" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
